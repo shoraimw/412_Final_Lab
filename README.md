@@ -1,21 +1,175 @@
 # University Laboratory Equipment Reservation System
 
-East West University — Software Engineering Lab, Parts A and B.
+**East West University — Software Engineering Lab (Parts A, B and C)**
 
-## Run locally
+A local web application for browsing laboratory equipment, submitting reservation requests, checking time-slot availability, and approving or rejecting requests.
 
-```bash
+## Overview and features
+
+- Dashboard with equipment and reservation-status counts.
+- Equipment catalogue.
+- Reservation form with student ID, date, time, equipment and quantity validation.
+- Live availability feedback through the Flask JSON endpoint `/api/availability`.
+- Pending, Approved and Rejected reservation statuses.
+- Approval/rejection actions for pending requests.
+- SQLite persistence across application restarts.
+- Automatic schema creation and sample equipment seeding.
+- CSRF tokens for POST forms.
+- Automated tests using isolated temporary databases.
+
+## Technology stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | HTML5, CSS3, JavaScript |
+| Backend | Python 3, Flask |
+| Database | SQLite 3 (`sqlite3`, included with Python) |
+| Tests | Python `unittest` |
+
+No MySQL/PostgreSQL server, cloud database, or paid service is required.
+
+## Project structure
+
+```text
+412_Final_Lab/
+├── app.py
+├── requirements.txt
+├── schema.sql
+├── README.md
+├── TEST_REPORT.md
+├── test_reservations.py
+├── tests/
+│   └── test_app.py
+├── templates/
+│   ├── index.html
+│   └── _reservations.html
+├── static/
+│   ├── app.js
+│   └── style.css
+└── instance/                 # generated automatically
+    └── laboratory.sqlite3   # generated automatically
+```
+
+## Requirements
+
+- Windows 10/11, macOS or Linux.
+- Python 3.9 or newer.
+- A modern web browser.
+- Internet access for the first Flask package installation, unless already cached.
+
+## Install and run on Windows
+
+Open the repository folder in VS Code. Open **Terminal → New Terminal** and confirm that the current directory contains `app.py`.
+
+Recommended virtual environment:
+
+```powershell
 python -m venv .venv
-# Windows: .venv\Scripts\activate
-# macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
+.\.venv\Scripts\Activate.ps1
+```
+
+If PowerShell blocks activation, use Command Prompt:
+
+```bat
+.venv\Scripts\activate.bat
+```
+
+Install dependencies:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+Start Flask:
+
+```powershell
 python app.py
 ```
 
-Open http://127.0.0.1:5000. SQLite initializes automatically with sample equipment. The dashboard counts distinct inventory records and reservation statuses. Approved bookings consume inventory only during their time slot; overlapping approvals cannot exceed stock. Rejected and pending requests do not consume stock. This is a local lab demonstration with no authentication; do not expose it publicly as-is.
+Open **http://127.0.0.1:5000** in the browser. Keep the terminal open while using the application. Press Ctrl+C to stop the server.
 
-Run tests: `python -m unittest discover -s tests -v`.
+## Database initialization and persistence
 
-## Part B business rules
+The application builds its database path from the Flask instance directory and creates the parent directory automatically. During `create_app()`, it executes `schema.sql` and inserts sample equipment with `INSERT OR IGNORE`. SQLite foreign-key enforcement is enabled on each connection.
 
-Submission and approval use `BEGIN IMMEDIATE` SQLite transactions. Availability equals total stock minus the peak simultaneous approved quantity during the selected half-open time interval. Pending and rejected requests do not consume stock. Pending and approved bookings block overlapping requests by the same student for the same equipment/date; adjacent slots are allowed. Only pending requests may transition to approved or rejected. The reservation form fetches live availability and overlap information from `/api/availability`; server-side checks remain authoritative. Total stock is never decremented.
+The database file is `instance/laboratory.sqlite3`. It contains the equipment inventory and reservation records. Reservation inserts and status changes are committed to this file, so records remain after Flask is restarted. Do not delete the database file if you want to keep demonstration data.
+
+## Frontend/backend connectivity
+
+1. The browser requests a page from a Flask route.
+2. Flask renders HTML from `templates/`.
+3. The browser loads `static/style.css` and `static/app.js`.
+4. JavaScript requests `/api/availability`; Flask reads SQLite and returns JSON.
+5. When a form is submitted, Flask validates the request again on the server and writes the reservation to SQLite.
+6. Approve/reject actions send POST requests to Flask routes, which update the reservation status in the database.
+
+Server-side validation is authoritative; browser JavaScript is not a security boundary.
+
+## Reservation business rules
+
+- New requests are Pending.
+- Pending and Rejected reservations do not consume stock.
+- Approved reservations consume stock only during their reserved time interval.
+- Availability is calculated using peak simultaneous approved quantity, not by subtracting every reservation for the whole day.
+- A student cannot make overlapping Pending or Approved reservations for the same equipment and date; adjacent slots are allowed.
+- Only Pending requests can be approved or rejected.
+- An approval that exceeds stock is blocked and remains Pending.
+- Total equipment stock is not permanently decremented.
+
+Reservation and approval writes use SQLite `BEGIN IMMEDIATE` transactions to serialize competing writes and reduce overbooking risk.
+
+## Automated testing
+
+Run the application test suite:
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+Run the Part C reservation QA suite:
+
+```powershell
+python -m unittest -v test_reservations
+```
+
+Tests use isolated temporary databases. See [TEST_REPORT.md](TEST_REPORT.md) for scenarios and expected outcomes. The report currently records its prior execution status as **NOT RUN**; run both commands on the submission computer and retain the real output before claiming test success.
+
+## Manual smoke test
+
+1. Start Flask and open the dashboard.
+2. Confirm equipment appears on the Equipment page.
+3. Submit a valid reservation for a future date.
+4. Confirm it appears with Pending status.
+5. Approve it and confirm Approved status.
+6. Submit a conflicting/over-capacity reservation and confirm the server rejects it.
+7. Reject another Pending request.
+8. Restart Flask and confirm earlier reservations remain visible.
+
+## Troubleshooting
+
+| Problem | Suggested fix |
+|---|---|
+| `python` is not recognized | Install Python, enable Add Python to PATH, then reopen the terminal. |
+| `No module named flask` | Activate the virtual environment and run `python -m pip install -r requirements.txt`. |
+| Requirements file not found | Change directory to the repository root containing `requirements.txt`. |
+| Port 5000 is already in use | Stop the other process using port 5000, then restart Flask. |
+| Browser cannot connect | Check that Flask is still running and visit `http://127.0.0.1:5000`. |
+| Records appear missing | Confirm you are running the same repository folder and have not deleted `instance/laboratory.sqlite3`. |
+| Invalid form token | Reload the page and submit again. |
+
+## Submission checklist
+
+- [ ] Install dependencies without errors.
+- [ ] Start with `python app.py` without a traceback.
+- [ ] Open `http://127.0.0.1:5000`.
+- [ ] Verify dashboard and equipment list.
+- [ ] Submit valid and invalid reservations.
+- [ ] Verify approval and rejection.
+- [ ] Restart Flask and verify persistence.
+- [ ] Run both test commands and save actual terminal output.
+
+## Local-use limitation
+
+The Flask development server is appropriate for this lab demonstration, not production hosting. The project does not implement authentication/authorization. Do not expose it to the public internet as-is.
+
+See [INSTRUCTOR_DEMO_GUIDE.md](INSTRUCTOR_DEMO_GUIDE.md) for the demonstration sequence and ten viva questions.
