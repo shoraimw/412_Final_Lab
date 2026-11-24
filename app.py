@@ -1,4 +1,4 @@
-"""EWU Laboratory Equipment Reservation System — Part A."""
+"""EWU Laboratory Equipment Reservation System — Parts A and B."""
 import os
 import re
 import secrets
@@ -6,7 +6,7 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
-from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
 
 ROOT = Path(__file__).resolve().parent
 SAMPLE_EQUIPMENT = [
@@ -102,9 +102,14 @@ def create_app(config=None):
             start = values.get('start_time', '')
             end = values.get('end_time', '')
             error = None
-            item = db().execute('SELECT * FROM equipment WHERE id = ?', (equipment_id,)).fetchone()
+            connection = db()
+            connection.execute('BEGIN IMMEDIATE')
+            item = connection.execute('SELECT * FROM equipment WHERE id = ?', (equipment_id,)).fetchone()
             try:
-                quantity = int(values.get('quantity', ''))
+                raw_quantity = values.get('quantity', '')
+                if not re.fullmatch(r'[0-9]+', raw_quantity):
+                    raise ValueError
+                quantity = int(raw_quantity)
             except ValueError:
                 quantity = 0
             if not student or len(student) > 40 or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]*', student):
@@ -121,12 +126,17 @@ def create_app(config=None):
                     error = 'Enter a valid reservation date.'
                 if not error and (not all(re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', t) for t in (start, end)) or start >= end):
                     error = 'End time must be later than start time. Enter valid times.'
-                if not error and not 1 <= quantity <= item['quantity']:
-                    error = f"Quantity must be between 1 and {item['quantity']}."
+                if not error and quantity <= 0:
+                    error = 'Quantity must be a positive integer.'
+                slot = dict(equipment_id=equipment_id, reservation_date=day, start_time=start, end_time=end)
+                if not error and overlapping_student(connection, student, slot):
+                    error = 'An overlapping reservation already exists.'
+                if not error and quantity > item['quantity'] - peak_reserved(connection, slot):
+                    error = 'Requested quantity exceeds available equipment.'
             if error:
+                connection.rollback()
                 flash(error, 'error')
                 return render_template('index.html', page='reserve', items=inventory(), values=values), 400
-            connection = db()
             connection.execute(
                 '''INSERT INTO reservations
                    (student_id, equipment_id, reservation_date, start_time, end_time, quantity)
@@ -141,6 +151,36 @@ def create_app(config=None):
     @app.get('/reservations')
     def manage():
         return render_template('index.html', page='reservations', rows=reservations())
+
+    def overlapping_student(connection, student, row):
+        return connection.execute(
+            """SELECT 1 FROM reservations WHERE student_id = ? COLLATE NOCASE
+               AND equipment_id = ? AND reservation_date = ?
+               AND status IN ('Pending', 'Approved')
+               AND start_time < ? AND end_time > ? LIMIT 1""",
+            (student, row['equipment_id'], row['reservation_date'], row['end_time'], row['start_time']),
+        ).fetchone() is not None
+
+    @app.get('/api/availability')
+    def availability():
+        slot = {key: request.args.get(key, '') for key in
+                ('equipment_id', 'reservation_date', 'start_time', 'end_time')}
+        day, start, end = (slot[key] for key in ('reservation_date', 'start_time', 'end_time'))
+        try:
+            if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', day) or date.fromisoformat(day) < date.today():
+                raise ValueError
+            if not all(re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', t) for t in (start, end)) or start >= end:
+                raise ValueError
+        except ValueError:
+            return jsonify(error='Enter a valid date and time slot.'), 400
+        connection = db()
+        item = connection.execute('SELECT quantity FROM equipment WHERE id = ?', (slot['equipment_id'],)).fetchone()
+        if item is None:
+            return jsonify(error='Select valid laboratory equipment.'), 400
+        available = max(0, item['quantity'] - peak_reserved(connection, slot))
+        student = request.args.get('student_id', '').strip()
+        return jsonify(available=available, stock=item['quantity'],
+                       overlap=bool(student and overlapping_student(connection, student, slot)))
 
     def peak_reserved(connection, row):
         """Sweep overlapping approved intervals; end events precede start events."""
@@ -178,7 +218,7 @@ def create_app(config=None):
             if row['status'] != 'Pending':
                 flash('Only pending reservations can be changed.', 'error')
             elif status == 'Approved' and peak_reserved(connection, row) + row['quantity'] > row['stock']:
-                flash('Not enough equipment for this time slot. Request remains Pending.', 'error')
+                flash('Insufficient equipment available for approval. Request remains Pending.', 'error')
             else:
                 connection.execute('UPDATE reservations SET status = ? WHERE id = ?', (status, reservation_id))
                 flash(f'Reservation #{reservation_id} {status.lower()}.', 'success')
