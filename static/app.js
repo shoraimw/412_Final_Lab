@@ -26,24 +26,38 @@ if (search) {
 }
 const equipment = document.getElementById('equipment');
 if (equipment) {
+  const form = document.getElementById('reservation-form');
   const quantity = document.getElementById('quantity');
-  const stockNote = document.getElementById('stock-note');
-  const updateStock = () => {
-    const stock = equipment.selectedOptions[0]?.dataset.stock;
-    if (stock !== undefined) {
-      quantity.max = stock;
-      stockNote.textContent = stock + ' units in stock. Slot availability checked on approval.';
-    } else {
-      quantity.removeAttribute('max');
-      stockNote.textContent = 'Select equipment to see stock.';
-    }
-  };
-  equipment.addEventListener('change', updateStock);
-  updateStock();
+  const note = document.getElementById('stock-note');
   const start = document.getElementById('start-time');
   const end = document.getElementById('end-time');
-  const checkTime = () => end.setCustomValidity(start.value && end.value && end.value <= start.value ? 'End time must be later than start time.' : '');
-  start.addEventListener('input', checkTime);
-  end.addEventListener('input', checkTime);
-  checkTime();
+  const day = form.elements.reservation_date;
+  const student = form.elements.student_id;
+  let sequence = 0;
+  async function refresh() {
+    const version = ++sequence;
+    const stock = equipment.selectedOptions[0]?.dataset.stock;
+    quantity.setCustomValidity('');
+    student.setCustomValidity('');
+    end.setCustomValidity(start.value && end.value && end.value <= start.value ? 'End time must be later than start time.' : '');
+    if (stock === undefined) quantity.removeAttribute('max');
+    else quantity.max = stock;
+    note.textContent = stock === undefined ? 'Select equipment to see stock.' : stock + ' total units. Select a valid date and time to check availability.';
+    if (!equipment.value || !day.value || !day.validity.valid || !start.value || !end.value || end.value <= start.value) return;
+    const params = new URLSearchParams({equipment_id: equipment.value, reservation_date: day.value, start_time: start.value, end_time: end.value, student_id: student.value});
+    try {
+      const response = await fetch('/api/availability?' + params, {cache: 'no-store'});
+      if (!response.ok) throw new Error('Availability unavailable');
+      const result = await response.json();
+      if (version !== sequence) return;
+      quantity.max = result.available;
+      note.textContent = result.available + ' of ' + result.stock + ' units available for this slot.';
+      if (Number(quantity.value) > result.available) quantity.setCustomValidity('Requested quantity exceeds available equipment.');
+      if (result.overlap) student.setCustomValidity('An overlapping reservation already exists.');
+    } catch (error) {
+      if (version === sequence) note.textContent = 'Live availability unavailable. The server will validate your request.';
+    }
+  }
+  for (const field of [equipment, day, start, end, student, quantity]) field.addEventListener('input', refresh);
+  refresh();
 }
