@@ -22,7 +22,7 @@
   <main>
     <header class="topbar"><button class="menu" id="menu" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button><span>University Laboratory Equipment Reservation System</span><span class="portal">EWU · STUDENT PROJECT</span></header>
     <div class="content">
-      {% if online_demo %}<div class="demo-note" role="note">Academic demonstration only — not an official EWU service. Use fictional student IDs. Online reservations may reset or differ across server instances.</div>{% endif %}
+      {% if online_demo %}<div class="demo-note" role="note">Academic demonstration only — not an official EWU service. Use fictional student IDs. {% if persistent_database %}Reservations are stored in the shared PostgreSQL database.{% else %}Online reservations may reset or differ across server instances until the database is connected.{% endif %}</div>{% endif %}
       {% for category, message in get_flashed_messages(with_categories=true) %}
       <div class="notice {{ category }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</div>
       {% endfor %}

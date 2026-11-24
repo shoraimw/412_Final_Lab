@@ -6,6 +6,7 @@ import sqlite3
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
+from postgres_adapter import PostgresConnection
 
 from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
 
@@ -34,6 +35,7 @@ def create_app(config=None):
     app = Flask(__name__)
     app.config.from_mapping(
         DATABASE=os.environ.get('DATABASE_PATH') or (('/tmp/ewu-laboratory.sqlite3') if os.environ.get('VERCEL') else str(Path(app.instance_path) / 'laboratory.sqlite3')),
+        DATABASE_URL=os.environ.get('DATABASE_URL'),
         ONLINE_DEMO=bool(os.environ.get('VERCEL')),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE='Lax',
@@ -42,14 +44,23 @@ def create_app(config=None):
     )
     if config:
         app.config.update(config)
-    Path(app.config['DATABASE']).parent.mkdir(parents=True, exist_ok=True)
+        if 'DATABASE' in config and 'DATABASE_URL' not in config:
+            app.config['DATABASE_URL'] = None
+    remote = bool(app.config['DATABASE_URL'])
+    if remote and os.environ.get('VERCEL') and not os.environ.get('SECRET_KEY'):
+        raise RuntimeError('Set SECRET_KEY in the Vercel environment before using PostgreSQL.')
+    if not remote:
+        Path(app.config['DATABASE']).parent.mkdir(parents=True, exist_ok=True)
 
     def db():
-        """One SQLite connection per request; enforce foreign keys."""
+        """One connection per request; SQLite locally or shared PostgreSQL."""
         if 'db' not in g:
-            g.db = sqlite3.connect(app.config['DATABASE'], timeout=10)
-            g.db.row_factory = sqlite3.Row
-            g.db.execute('PRAGMA foreign_keys = ON')
+            if remote:
+                g.db = PostgresConnection(app.config['DATABASE_URL'])
+            else:
+                g.db = sqlite3.connect(app.config['DATABASE'], timeout=10)
+                g.db.row_factory = sqlite3.Row
+                g.db.execute('PRAGMA foreign_keys = ON')
         return g.db
 
     @app.teardown_appcontext
@@ -58,19 +69,20 @@ def create_app(config=None):
         if connection is not None:
             connection.close()
 
-    with app.app_context():
-        connection = db()
-        connection.executescript((ROOT / 'schema.sql').read_text(encoding='utf-8'))
-        connection.executemany(
-            'INSERT OR IGNORE INTO equipment VALUES (?, ?, ?, ?)', SAMPLE_EQUIPMENT
-        )
-        connection.commit()
+    if not remote:
+        with app.app_context():
+            connection = db()
+            connection.executescript((ROOT / 'schema.sql').read_text(encoding='utf-8'))
+            connection.executemany(
+                'INSERT OR IGNORE INTO equipment VALUES (?, ?, ?, ?)', SAMPLE_EQUIPMENT
+            )
+            connection.commit()
 
     @app.context_processor
     def common():
         if 'csrf' not in session:
             session['csrf'] = secrets.token_hex(24)
-        return {'csrf_token': session['csrf'], 'today': local_today().isoformat(), 'online_demo': app.config['ONLINE_DEMO']}
+        return {'csrf_token': session['csrf'], 'today': local_today().isoformat(), 'online_demo': app.config['ONLINE_DEMO'], 'persistent_database': remote}
 
     @app.before_request
     def verify_csrf():
@@ -88,10 +100,22 @@ def create_app(config=None):
                JOIN equipment e ON e.id = r.equipment_id ORDER BY r.id DESC'''
         ).fetchall()
 
+    @app.get('/api/health')
+    def health():
+        try:
+            connection = db()
+            connection.execute('SELECT COUNT(*) AS total FROM equipment').fetchone()
+            connection.execute('SELECT COUNT(*) AS total FROM reservations').fetchone()
+        except Exception:
+            app.logger.warning('Database health check failed')
+            return jsonify(status='unavailable'), 503
+        mode = 'postgresql' if remote else ('temporary-sqlite' if app.config['ONLINE_DEMO'] else 'sqlite')
+        return jsonify(status='ok', database=mode, persistent=remote or not app.config['ONLINE_DEMO'])
+
     @app.get('/')
     def dashboard():
         connection = db()
-        stats = {'equipment': connection.execute('SELECT COUNT(*) FROM equipment').fetchone()[0],
+        stats = {'equipment': connection.execute('SELECT COUNT(*) AS total FROM equipment').fetchone()['total'],
                  'Pending': 0, 'Approved': 0, 'Rejected': 0}
         for row in connection.execute('SELECT status, COUNT(*) AS total FROM reservations GROUP BY status'):
             stats[row['status']] = row['total']

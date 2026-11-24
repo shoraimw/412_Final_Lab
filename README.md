@@ -175,6 +175,17 @@ The Flask development server is appropriate for this lab demonstration, not prod
 See [INSTRUCTOR_DEMO_GUIDE.md](INSTRUCTOR_DEMO_GUIDE.md) for the demonstration sequence and ten viva questions.
 
 
-## Vercel online demonstration
+## Vercel online demonstration with Supabase PostgreSQL
 
-Vercel detects the exported Flask WSGI app in app.py. The original SQLite database is retained locally. On Vercel only, the app creates a temporary database in /tmp and seeds the catalogue on startup. Data is not durable across cold starts, instances or redeployments; this is an academic demo, not an official university portal. Use fictional student IDs only. Set a random SECRET_KEY in the Vercel project environment; do not commit it. For real shared persistence, connect a managed SQLite-compatible database and migrate the transaction/row adapter before production use. Static asset copies in public/static are served by the Vercel CDN. Campus photo: East West University website. Logo: Wikimedia Commons (East-west-university-LogoSVG.svg).
+Local execution and tests still use SQLite. Online deployment supports a shared PostgreSQL database when DATABASE_URL is set. This is an academic demonstration only: use fictional student IDs. There is no separate administrator login yet, so restrict access to the deployment to lab participants if necessary.
+
+1. Create a dedicated Supabase project (not an unrelated app's database).
+2. Run database/postgres.sql in the project's SQL Editor. It creates a private schema, enables RLS, and seeds the 12 equipment rows without overwriting existing stock.
+3. From Supabase Connect, choose the IPv4-compatible **Transaction pooler** connection URI (port 6543). Use the actual database password, URL-encoded if necessary. Prefer a dedicated least-privilege database login with explicit schema/table/sequence grants in a production setup.
+4. Set DATABASE_URL and a long random SECRET_KEY as server-only environment variables in the Vercel project settings. Do not commit these values or expose them to JavaScript. The adapter requires TLS and disables prepared statements for compatibility with the transaction pooler.
+5. Redeploy the latest main commit. Open /api/health and verify it returns status ok, database postgresql, and persistent true. If DATABASE_URL is absent the existing demo still uses temporary SQLite on Vercel; if it is set, the application never falls back to temporary SQLite.
+6. Test submitting, reloading, approving/rejecting, duplicate/overlap prevention and overbooking, using fictional IDs. Confirm records remain after a redeployment. Migration does not transfer local demonstration records.
+
+PostgreSQL writes lock the reservation table before checking availability so concurrent approvals cannot overbook. All user values are parameterized. Local tests can continue using separate SQLite files. See https://supabase.com/docs/guides/database/connecting-to-postgres.
+
+Static asset copies in public/static are served by Vercel. Campus photo: East West University website. Logo: Wikimedia Commons.
