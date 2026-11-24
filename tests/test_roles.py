@@ -21,7 +21,7 @@ class RoleTests(unittest.TestCase):
 
     def login(self, client, role, student_id='', password='test-admin-123456'):
         client.get('/login')
-        return self.post(client, '/login', role=role, student_id=student_id, password=password)
+        return self.post(client, '/login', role=role, student_id=('SWNN' if role == 'admin' else student_id), password=password)
 
     def test_permissions_ownership_and_approval(self):
         self.assertEqual(self.student.get('/reserve').status_code, 302)

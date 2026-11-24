@@ -38,6 +38,7 @@ def create_app(config=None):
         DATABASE=os.environ.get('DATABASE_PATH') or (('/tmp/ewu-laboratory.sqlite3') if os.environ.get('VERCEL') else str(Path(app.instance_path) / 'laboratory.sqlite3')),
         DATABASE_URL=os.environ.get('DATABASE_URL'),
         ADMIN_PASSWORD=os.environ.get('ADMIN_PASSWORD'),
+        ADMIN_ID='SWNN',
         AUTH_REQUIRED=True,
         PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
         ONLINE_DEMO=bool(os.environ.get('VERCEL')),
@@ -134,7 +135,7 @@ def create_app(config=None):
             authenticated = False
             if selected == 'admin':
                 expected = app.config.get('ADMIN_PASSWORD') or ''
-                if expected and secrets.compare_digest(password.encode(), expected.encode()) and username in ('', 'ADMIN'):
+                if expected and secrets.compare_digest(password.encode(), expected.encode()) and username == app.config['ADMIN_ID']:
                     connection = db()
                     account = connection.execute("SELECT password_hash, enabled FROM admins WHERE username = 'ADMIN'").fetchone()
                     authenticated = bool(account and account['enabled'])
@@ -166,7 +167,7 @@ def create_app(config=None):
             username = request.form.get('student_id', '').strip().upper()
             password = request.form.get('password', '')
             confirm = request.form.get('confirm_password', '')
-            if not re.fullmatch(r'[A-Z0-9][A-Z0-9-]{0,39}', username) or username == 'ADMIN' or not 12 <= len(password) <= 256 or password != confirm:
+            if not re.fullmatch(r'[A-Z0-9][A-Z0-9-]{0,39}', username) or username in ('ADMIN', app.config['ADMIN_ID']) or not 12 <= len(password) <= 256 or password != confirm:
                 flash('Enter a valid student ID and matching passwords of at least 12 characters.', 'error')
                 return render_template('index.html', page='signup', entered_id=username), 400
             connection = db()
@@ -200,7 +201,7 @@ def create_app(config=None):
         if request.method == 'POST':
             username = request.form.get('student_id', '').strip().upper()
             password = request.form.get('password', '')
-            if not re.fullmatch(r'[A-Z0-9][A-Z0-9-]{0,39}', username) or username == 'ADMIN' or not 12 <= len(password) <= 256:
+            if not re.fullmatch(r'[A-Z0-9][A-Z0-9-]{0,39}', username) or username in ('ADMIN', app.config['ADMIN_ID']) or not 12 <= len(password) <= 256:
                 flash('Enter a valid student ID and a password of at least 12 characters.', 'error')
                 return redirect(url_for('student_accounts'))
             connection = db()

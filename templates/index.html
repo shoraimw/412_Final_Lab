@@ -35,7 +35,7 @@
       <section class="panel form-panel"><form method="post" class="form-grid">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Account type<select name="role"><option value="student" {% if selected_role != 'admin' %}selected{% endif %}>Student</option><option value="admin" {% if selected_role == 'admin' %}selected{% endif %}>Administrator</option></select></label>
-      <label>Student ID (students only)<input name="student_id" autocomplete="username" maxlength="40" value="{{ entered_id|default('') }}"></label>
+      <label>Student ID / Admin ID<input name="student_id" autocomplete="username" required maxlength="40" value="{{ entered_id|default('') }}"></label>
       <label>Password<input name="password" type="password" autocomplete="current-password" maxlength="256" required></label>
       <div class="form-actions"><a class="btn secondary" href="{{ url_for('signup') }}">Create student account</a><button class="btn primary" type="submit">Sign in</button></div>
       </form></section>
