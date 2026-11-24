@@ -130,10 +130,23 @@ class ReservationQA(unittest.TestCase):
         self.valid(start_time="11:00",end_time="12:00")
         self.assertEqual(len(self.rows()),2)
 
-    def test_12_different_equipment(self):
+    def test_12_different_equipment_same_time_rejected(self):
         self.valid()
-        self.valid(equipment_id="EQ-002")
-        self.assertEqual(len(self.rows()),2)
+        self.invalid("overlapping reservation", equipment_id="EQ-002")
+        self.assertEqual(len(self.rows()),1)
+
+    def test_19_approval_rejects_legacy_cross_equipment_overlap(self):
+        first = self.valid()
+        # Simulate a legacy Pending row that predates the cross-equipment rule.
+        with sqlite3.connect(self.path) as db:
+            db.execute("""INSERT INTO reservations
+                (student_id,equipment_id,reservation_date,start_time,end_time,quantity,status)
+                VALUES (?,?,?,?,?,?,?)""",
+                ("2026-1-60-001","EQ-002","2026-11-25","10:30","11:30",1,"Pending"))
+        response = self.client.post("/reservations/2/approve",
+            data={"csrf_token":self.token}, follow_redirects=True)
+        self.assertIn(b"overlapping reservation already exists", response.data)
+        self.assertEqual([r["status"] for r in self.rows()],["Pending","Pending"])
 
     def test_13_different_date(self):
         self.valid()
