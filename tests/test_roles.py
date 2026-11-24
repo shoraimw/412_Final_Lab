@@ -51,5 +51,16 @@ class RoleTests(unittest.TestCase):
         self.assertIn(b'Rejected', self.other.get('/reservations').data)
 
 
+    def test_signup_requires_approval(self):
+        self.student.get('/signup')
+        self.assertEqual(self.post(self.student, '/signup', student_id='SIGNUP-01', password='student-test-1234', confirm_password='student-test-1234', role='admin').status_code, 302)
+        self.assertEqual(self.login(self.student, 'student', 'SIGNUP-01', 'student-test-1234').status_code, 403)
+        self.assertEqual(self.login(self.admin, 'admin').status_code, 302)
+        self.admin.get('/admin/students')
+        self.assertEqual(self.post(self.admin, '/admin/students/SIGNUP-01/approve').status_code, 302)
+        self.assertEqual(self.login(self.student, 'student', 'SIGNUP-01', 'student-test-1234').status_code, 302)
+        self.assertEqual(self.student.get('/admin/students').status_code, 403)
+
+
 if __name__ == '__main__':
     unittest.main()

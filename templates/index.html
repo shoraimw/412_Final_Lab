@@ -31,22 +31,31 @@
       {% if page == 'setup' %}
       <section class="panel form-panel setup-panel"><div class="panel-head"><div><p class="eyebrow">SYSTEM CONFIGURATION</p><h1>Database setup required</h1><p>The portal is temporarily unavailable to protect reservation records.</p></div></div><div class="setup-body"><p>Ask the project administrator to configure the following Vercel environment variables and redeploy:</p><ul>{% for key in configuration_missing %}<li><code>{{ key }}</code></li>{% endfor %}</ul><p>After redeployment, check <a href="{{ url_for('health') }}">system health</a>.</p></div></section>
       {% elif page == 'login' %}
-      <div class="heading"><div><p class="eyebrow">SECURE ACCESS</p><img class="login-logo" src="{{ url_for('static', filename='ewu-logo.png') }}" alt="East West University logo"><h1>Sign in to the laboratory portal</h1><p>Students use accounts issued by the laboratory administrator.</p></div></div>
+      <div class="heading"><div><p class="eyebrow">SECURE ACCESS</p><img class="login-logo" src="{{ url_for('static', filename='ewu-logo.png') }}" alt="East West University logo"><h1>Sign in to the laboratory portal</h1><p>Students can register a new account or sign in after administrator verification.</p></div></div>
       <section class="panel form-panel"><form method="post" class="form-grid">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Account type<select name="role"><option value="student" {% if selected_role != 'admin' %}selected{% endif %}>Student</option><option value="admin" {% if selected_role == 'admin' %}selected{% endif %}>Administrator</option></select></label>
       <label>Student ID (students only)<input name="student_id" autocomplete="username" maxlength="40" value="{{ entered_id|default('') }}"></label>
       <label>Password<input name="password" type="password" autocomplete="current-password" maxlength="256" required></label>
-      <div class="form-actions"><button class="btn primary" type="submit">Sign in</button></div>
+      <div class="form-actions"><a class="btn secondary" href="{{ url_for('signup') }}">Create student account</a><button class="btn primary" type="submit">Sign in</button></div>
+      </form></section>
+      {% elif page == 'signup' %}
+      <div class="heading"><div><p class="eyebrow">STUDENT REGISTRATION</p><h1>Create your student account</h1><p>Use a fictional student ID for this academic demonstration. An administrator must verify your registration.</p></div></div>
+      <section class="panel form-panel"><form method="post" class="form-grid">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>Student ID<input name="student_id" maxlength="40" required autocomplete="username" value="{{ entered_id|default('') }}"></label>
+      <label>Password<input name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label>
+      <label>Confirm password<input name="confirm_password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label>
+      <div class="form-actions"><a class="btn secondary" href="{{ url_for('login') }}">Back to sign in</a><button class="btn primary" type="submit">Sign up</button></div>
       </form></section>
       {% elif page == 'students' %}
-      <div class="heading"><div><p class="eyebrow">ADMINISTRATION</p><h1>Student accounts</h1><p>Issue accounts to verified lab participants. Use fictional IDs for the academic demo.</p></div></div>
+      <div class="heading"><div><p class="eyebrow">ADMINISTRATION</p><h1>Student accounts</h1><p>Verify pending registrations and issue accounts to lab participants. To activate the pre-created DEMO-STUDENT account, set its initial password using this form.</p></div></div>
       <section class="panel form-panel"><form method="post" class="form-grid">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Student ID<input name="student_id" maxlength="40" required></label>
       <label>Initial password<input name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label>
       <div class="form-actions"><button class="btn primary" type="submit">Create student account</button></div>
-      </form><div class="panel-head"><h2>Registered students</h2></div><div class="table-wrap"><table><thead><tr><th>Student ID</th></tr></thead><tbody>{% for account in accounts %}<tr><td>{{ account.student_id }}</td></tr>{% else %}<tr><td>No accounts yet.</td></tr>{% endfor %}</tbody></table></div></section>
+      </form><div class="panel-head"><h2>Registered students</h2></div><div class="table-wrap"><table><thead><tr><th>Student ID</th><th>Status</th><th>Action</th></tr></thead><tbody>{% for account in accounts %}<tr><td>{{ account.student_id }}</td><td><span class="pill {{ 'approved' if account.approved else 'pending' }}">{{ 'Active' if account.approved else ('Pending verification' if account.has_password else 'Password setup required') }}</span></td><td>{% if not account.approved and account.has_password %}<form method="post" action="{{ url_for('approve_student', student_id=account.student_id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn approve" type="submit">Activate account</button></form>{% elif not account.has_password %}Set initial password above{% else %}Verified{% endif %}</td></tr>{% else %}<tr><td colspan="3">No accounts yet.</td></tr>{% endfor %}</tbody></table></div></section>
       {% elif page == 'dashboard' %}
       <section class="campus-hero"><div><p class="eyebrow">EAST WEST UNIVERSITY · CSE412</p><h2>Laboratory Equipment Reservation System</h2><p>Excellence in education · Aftabnagar, Dhaka</p><a class="hero-link" href="https://www.ewubd.edu/" target="_blank" rel="noopener noreferrer">University website ↗</a></div><img src="https://www.ewubd.edu/themes/east-west-university/assets/vision-mission_img.jpg" alt="East West University red-brick campus courtyard" width="600" height="484"></section>
       <div class="heading"><div><p class="eyebrow">OVERVIEW</p><h1>Laboratory dashboard</h1><p>{{ 'Review all requests and manage student accounts.' if role == 'admin' else 'Request laboratory equipment and track your reservations.' }}</p></div>{% if can_reserve %}<a class="btn primary" href="{{ url_for('reserve') }}">+ New reservation</a>{% endif %}</div>

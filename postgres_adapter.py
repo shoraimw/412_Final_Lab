@@ -13,7 +13,7 @@ def translate_sql(statement):
         'student_id = ? COLLATE NOCASE', 'LOWER(student_id) = LOWER(?)'
     )
     statement = re.sub(
-        r'\b(FROM|JOIN|INTO|UPDATE)\s+(equipment|reservations|students)\b',
+        r'\b(FROM|JOIN|INTO|UPDATE)\s+(equipment|reservations|students|admins)\b',
         lambda m: f'{m.group(1)} ewu_lab.{m.group(2)}',
         statement, flags=re.IGNORECASE,
     )

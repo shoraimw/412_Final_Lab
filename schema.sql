@@ -22,5 +22,12 @@ ON reservations(equipment_id, reservation_date, status, start_time, end_time);
 CREATE TABLE IF NOT EXISTS students (
     student_id TEXT PRIMARY KEY,
     password_hash TEXT NOT NULL,
+    approved INTEGER NOT NULL DEFAULT 1 CHECK (approved IN (0,1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS admins (
+    username TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1))
 );

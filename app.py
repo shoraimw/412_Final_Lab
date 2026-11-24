@@ -86,6 +86,10 @@ def create_app(config=None):
             connection.executemany(
                 'INSERT OR IGNORE INTO equipment VALUES (?, ?, ?, ?)', SAMPLE_EQUIPMENT
             )
+            if 'approved' not in {row['name'] for row in connection.execute('PRAGMA table_info(students)')}:
+                connection.execute('ALTER TABLE students ADD COLUMN approved INTEGER NOT NULL DEFAULT 1 CHECK (approved IN (0,1))')
+            connection.execute("INSERT OR IGNORE INTO admins(username) VALUES ('ADMIN')")
+            connection.execute("INSERT OR IGNORE INTO students(student_id,password_hash,approved) VALUES ('DEMO-STUDENT','',0)")
             connection.commit()
 
 
@@ -104,7 +108,7 @@ def create_app(config=None):
 
     @app.before_request
     def require_login():
-        if not auth_required or request.endpoint in ('login', 'static', 'health', None):
+        if not auth_required or request.endpoint in ('login', 'signup', 'static', 'health', None):
             return
         if role() not in ('admin', 'student'):
             if request.endpoint == 'availability':
@@ -112,7 +116,7 @@ def create_app(config=None):
             if request.method == 'POST':
                 abort(403)
             return redirect(url_for('login'))
-        if request.endpoint in ('update_status', 'student_accounts') and role() != 'admin':
+        if request.endpoint in ('update_status', 'student_accounts', 'approve_student') and role() != 'admin':
             abort(403)
         if request.endpoint == 'reserve' and role() != 'student':
             abort(403)
@@ -130,10 +134,19 @@ def create_app(config=None):
             authenticated = False
             if selected == 'admin':
                 expected = app.config.get('ADMIN_PASSWORD') or ''
-                authenticated = bool(expected) and secrets.compare_digest(password.encode(), expected.encode())
+                if expected and secrets.compare_digest(password.encode(), expected.encode()) and username in ('', 'ADMIN'):
+                    connection = db()
+                    account = connection.execute("SELECT password_hash, enabled FROM admins WHERE username = 'ADMIN'").fetchone()
+                    authenticated = bool(account and account['enabled'])
+                    if authenticated and (not account['password_hash'] or not check_password_hash(account['password_hash'], password)):
+                        connection.execute("UPDATE admins SET password_hash = ? WHERE username = 'ADMIN'", (generate_password_hash(password),))
+                        connection.commit()
             elif selected == 'student':
-                account = db().execute('SELECT password_hash FROM students WHERE student_id = ?', (username,)).fetchone()
-                authenticated = bool(account and check_password_hash(account['password_hash'], password))
+                account = db().execute('SELECT password_hash, approved FROM students WHERE student_id = ?', (username,)).fetchone()
+                authenticated = bool(account and account['password_hash'] and check_password_hash(account['password_hash'], password))
+                if authenticated and not account['approved']:
+                    flash('Your account is awaiting administrator approval.', 'error')
+                    return render_template('index.html', page='login', selected_role=selected, entered_id=username), 403
             if authenticated:
                 session.clear()
                 session['role'] = selected
@@ -141,9 +154,41 @@ def create_app(config=None):
                     session['student_id'] = username
                 session.permanent = True
                 return redirect(url_for('dashboard'))
-            flash('Invalid login details. Students must use an account issued by the administrator.', 'error')
+            flash('Invalid login details. Check your password or create a student account first.', 'error')
             return render_template('index.html', page='login', selected_role=selected, entered_id=username), 401
         return render_template('index.html', page='login')
+
+    @app.route('/signup', methods=['GET', 'POST'])
+    def signup():
+        if role() in ('student', 'admin'):
+            return redirect(url_for('dashboard'))
+        if request.method == 'POST':
+            username = request.form.get('student_id', '').strip().upper()
+            password = request.form.get('password', '')
+            confirm = request.form.get('confirm_password', '')
+            if not re.fullmatch(r'[A-Z0-9][A-Z0-9-]{0,39}', username) or username == 'ADMIN' or not 12 <= len(password) <= 256 or password != confirm:
+                flash('Enter a valid student ID and matching passwords of at least 12 characters.', 'error')
+                return render_template('index.html', page='signup', entered_id=username), 400
+            connection = db()
+            cursor = connection.execute(
+                'INSERT INTO students (student_id, password_hash, approved) VALUES (?, ?, 0) ON CONFLICT (student_id) DO NOTHING',
+                (username, generate_password_hash(password)),
+            )
+            connection.commit()
+            if not cursor.rowcount:
+                flash('This ID is already registered. Contact your administrator for account help.', 'error')
+                return render_template('index.html', page='signup', entered_id=username), 409
+            flash('Account created. Ask the administrator to verify and activate your student ID before signing in.', 'success')
+            return redirect(url_for('login'))
+        return render_template('index.html', page='signup')
+
+    @app.post('/admin/students/<student_id>/approve')
+    def approve_student(student_id):
+        connection = db()
+        cursor = connection.execute('UPDATE students SET approved = 1 WHERE student_id = ? AND approved = 0 AND password_hash <> ?', (student_id, ''))
+        connection.commit()
+        flash('Student account activated.' if cursor.rowcount else 'No pending account with a password was found.', 'success' if cursor.rowcount else 'error')
+        return redirect(url_for('student_accounts'))
 
     @app.post('/logout')
     def logout():
@@ -155,12 +200,12 @@ def create_app(config=None):
         if request.method == 'POST':
             username = request.form.get('student_id', '').strip().upper()
             password = request.form.get('password', '')
-            if not re.fullmatch(r'[A-Z0-9][A-Z0-9-]{0,39}', username) or not 12 <= len(password) <= 256:
+            if not re.fullmatch(r'[A-Z0-9][A-Z0-9-]{0,39}', username) or username == 'ADMIN' or not 12 <= len(password) <= 256:
                 flash('Enter a valid student ID and a password of at least 12 characters.', 'error')
                 return redirect(url_for('student_accounts'))
             connection = db()
             cursor = connection.execute(
-                'INSERT INTO students (student_id, password_hash) VALUES (?, ?) ON CONFLICT (student_id) DO NOTHING',
+                "INSERT INTO students (student_id, password_hash, approved) VALUES (?, ?, 1) ON CONFLICT (student_id) DO UPDATE SET password_hash = excluded.password_hash, approved = 1 WHERE students.password_hash = ''",
                 (username, generate_password_hash(password)),
             )
             connection.commit()
@@ -169,7 +214,7 @@ def create_app(config=None):
             else:
                 flash('This student account already exists.', 'error')
             return redirect(url_for('student_accounts'))
-        accounts = db().execute('SELECT student_id FROM students ORDER BY student_id').fetchall()
+        accounts = db().execute("SELECT student_id, approved, CASE WHEN password_hash = '' THEN 0 ELSE 1 END AS has_password FROM students ORDER BY student_id").fetchall()
         return render_template('index.html', page='students', accounts=accounts)
 
     @app.context_processor
@@ -205,6 +250,8 @@ def create_app(config=None):
             connection.execute('SELECT COUNT(*) AS total FROM equipment').fetchone()
             connection.execute('SELECT COUNT(*) AS total FROM reservations').fetchone()
             connection.execute('SELECT COUNT(*) AS total FROM students').fetchone()
+            connection.execute('SELECT COUNT(*) AS total FROM admins').fetchone()
+            connection.execute('SELECT approved FROM students LIMIT 1').fetchone()
         except Exception:
             app.logger.warning('Database health check failed')
             return jsonify(status='unavailable'), 503
