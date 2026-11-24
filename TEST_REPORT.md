@@ -52,6 +52,6 @@ python -c "from app import create_app; import sqlite3; a=create_app({'DATABASE':
 1. Submit default input. Show Pending status and dashboard increment.
 2. Use another student ID (2026-1-60-002) and quantity 10. Show quantity rejection; reservation count unchanged.
 3. Enter 12:00–10:00, quantity 2. Show time rejection and unchanged count.
-4. Use original student and equipment/date, 10:30–11:30, quantity 2. Show overlap rejection and unchanged count.
+4. Keep the original student/date and 10:00–11:00 slot, but select a different equipment item (e.g., Digital Multimeter) and quantity 2. Show the cross-equipment overlap rejection and unchanged reservation count. Also try 10:30–11:30 on the original equipment to demonstrate ordinary overlap rejection.
 
 Browser validation may block some invalid forms before submission; the automated suite posts directly to verify the backend independently.
