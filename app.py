@@ -496,13 +496,15 @@ def create_app(config=None):
         flash('Reservation cancelled successfully. Equipment is available for booking again.', 'success')
         return redirect(url_for('manage'))
 
-    def overlapping_student(connection, student, row):
+    def overlapping_student(connection, student, row, exclude_id=None):
+        # Student time conflicts apply across ALL equipment, not just the same item.
         return connection.execute(
             """SELECT 1 FROM reservations WHERE student_id = ? COLLATE NOCASE
-               AND equipment_id = ? AND reservation_date = ?
+               AND reservation_date = ?
                AND status IN ('Pending', 'Approved')
-               AND start_time < ? AND end_time > ? LIMIT 1""",
-            (student, row['equipment_id'], row['reservation_date'], row['end_time'], row['start_time']),
+               AND start_time < ? AND end_time > ?
+               AND id <> COALESCE(?, -1) LIMIT 1""",
+            (student, row['reservation_date'], row['end_time'], row['start_time'], exclude_id),
         ).fetchone() is not None
 
     @app.get('/api/availability')
@@ -564,6 +566,8 @@ def create_app(config=None):
                 abort(404)
             if row['status'] != 'Pending':
                 flash('Only pending reservations can be changed.', 'error')
+            elif status == 'Approved' and overlapping_student(connection, row['student_id'], row, exclude_id=reservation_id):
+                flash('An overlapping reservation already exists for this student. Request remains Pending.', 'error')
             elif status == 'Approved' and peak_reserved(connection, row) + row['quantity'] > row['stock']:
                 flash('Insufficient equipment available for approval. Request remains Pending.', 'error')
             else:
