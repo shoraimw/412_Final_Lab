@@ -264,7 +264,7 @@ def create_app(config=None):
     def common():
         if 'csrf' not in session:
             session['csrf'] = secrets.token_hex(24)
-        return {'csrf_token': session['csrf'], 'today': local_today().isoformat(), 'online_demo': app.config['ONLINE_DEMO'], 'persistent_database': (remote or guest_https) and not missing, 'configuration_missing': missing, 'admin_review': admin_review, 'guest_mode': guest_mode, 'role': role(), 'current_student': student_identity(), 'can_manage': role() in ('admin', 'legacy'), 'can_reserve': role() in ('student', 'legacy', 'guest')}
+        return {'csrf_token': session['csrf'], 'today': local_today().isoformat(), 'online_demo': app.config['ONLINE_DEMO'], 'persistent_database': (remote or guest_https) and not missing, 'configuration_missing': missing, 'admin_review': admin_review, 'guest_mode': guest_mode, 'guest_https': guest_https, 'role': role(), 'current_student': student_identity(), 'can_manage': role() in ('admin', 'legacy'), 'can_reserve': role() in ('student', 'legacy', 'guest')}
 
     @app.before_request
     def verify_csrf():
@@ -475,6 +475,24 @@ def create_app(config=None):
                 return redirect(url_for('manage'))
             connection.commit()
         session['guest_receipts'] = [row for row in receipts if row.get('id') != reservation_id]
+        flash('Reservation cancelled successfully. Equipment is available for booking again.', 'success')
+        return redirect(url_for('manage'))
+
+    @app.post('/reservations/recover-cancellation')
+    def recover_cancellation():
+        if not guest_mode or not guest_https:
+            abort(403)
+        raw_id = request.form.get('reservation_id', '').strip()
+        token = request.form.get('cancellation_token', '').strip().lower()
+        if not re.fullmatch(r'[1-9][0-9]{0,8}', raw_id) or not re.fullmatch(r'[a-f0-9]{64}', token):
+            flash('Enter a valid reservation number and recovery code.', 'error')
+            return redirect(url_for('manage'))
+        reservation_id = int(raw_id)
+        result = guest_rpc('cancel', {'reservation_id': reservation_id, 'cancellation_token': token})
+        if result.get('cancelled') is not True:
+            flash('Cancellation failed. Check the reservation number and recovery code.', 'error')
+            return redirect(url_for('manage'))
+        session['guest_receipts'] = [row for row in session.get('guest_receipts', []) if row.get('id') != reservation_id]
         flash('Reservation cancelled successfully. Equipment is available for booking again.', 'success')
         return redirect(url_for('manage'))
 

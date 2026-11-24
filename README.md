@@ -209,3 +209,6 @@ Guest mode requires no student account, password or admin approval. Enter a fict
 
 ### Guest cancellation
 My Reservations offers cancellation for recent bookings created with a cancellation receipt in the same browser. The hosted backend issues a random per-booking capability and stores only its SHA-256 hash in the private database. Cancellation deletes the matching booking atomically, restoring equipment stock. Student IDs alone cannot authorize cancellation. Bookings predating cancellation support have no capability and need owner assistance. Browser cookies must be retained; this is an academic guest demo, not institutional identity verification.
+
+### Earlier booking recovery
+The hosted My Reservations page includes a recovery cancellation form. For historical bookings without a capability, the project owner can issue a private per-booking random recovery code and store its SHA-256 hash in cancellation_hash. The form uses the same capability-checked cancellation API. It does not permit cancellation by Student ID or reservation ID alone.
