@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS ewu_lab.reservations (
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS reservation_slots ON ewu_lab.reservations(equipment_id, reservation_date, status, start_time, end_time);
-CREATE INDEX IF NOT EXISTS reservation_student_slots ON ewu_lab.reservations(lower(student_id), equipment_id, reservation_date) WHERE status IN ('Pending','Approved');
+CREATE INDEX IF NOT EXISTS reservation_student_slots ON ewu_lab.reservations(lower(student_id), reservation_date, start_time, end_time) WHERE status IN ('Pending','Approved');
 ALTER TABLE ewu_lab.equipment ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ewu_lab.reservations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON ALL TABLES IN SCHEMA ewu_lab FROM PUBLIC, anon, authenticated;
