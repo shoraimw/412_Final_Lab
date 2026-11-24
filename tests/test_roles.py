@@ -9,7 +9,7 @@ class RoleTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.app = create_app({'TESTING': True, 'DATABASE': str(Path(self.temp.name) / 'test.sqlite3'), 'SECRET_KEY': 'test-only', 'ADMIN_PASSWORD': 'test-admin-123456'})
+        self.app = create_app({'TESTING': True, 'DATABASE': str(Path(self.temp.name) / 'test.sqlite3'), 'SECRET_KEY': 'test-only', 'ADMIN_PASSWORD': 'test-admin-123456', 'ENABLE_ADMIN_REVIEW': True})
         self.admin = self.app.test_client()
         self.student = self.app.test_client()
         self.other = self.app.test_client()

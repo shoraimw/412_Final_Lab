@@ -24,7 +24,7 @@
   <main>
     <header class="topbar"><button class="menu" id="menu" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button><span>University Laboratory Equipment Reservation System</span><span class="portal">{{ 'ADMIN PORTAL' if role == 'admin' else ('STUDENT · ' ~ current_student if role == 'student' else 'EWU · STUDENT PROJECT') }}</span></header>
     <div class="content">
-      {% if online_demo %}<div class="demo-note" role="note">Academic demonstration only — not an official EWU service. Use fictional student IDs. {% if persistent_database %}Reservations are stored in the shared PostgreSQL database.{% else %}Hosted database configuration is incomplete; reservations are unavailable until setup is finished.{% endif %}</div>{% endif %}
+      {% if online_demo %}<div class="demo-note" role="note">Academic demonstration only — not an official EWU service. Use fictional student IDs. {% if persistent_database %}Configured to use a shared PostgreSQL database; service availability is shown in system health.{% else %}Hosted database configuration is incomplete; reservations are unavailable until setup is finished.{% endif %}</div>{% endif %}
       {% for category, message in get_flashed_messages(with_categories=true) %}
       <div class="notice {{ category }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</div>
       {% endfor %}
@@ -33,16 +33,16 @@
       {% elif page == 'setup' %}
       <section class="panel form-panel setup-panel"><div class="panel-head"><div><p class="eyebrow">SYSTEM CONFIGURATION</p><h1>Database setup required</h1><p>The portal is temporarily unavailable to protect reservation records.</p></div></div><div class="setup-body"><p>Ask the project administrator to configure the following Vercel environment variables and redeploy:</p><ul>{% for key in configuration_missing %}<li><code>{{ key }}</code></li>{% endfor %}</ul><p>After redeployment, check <a href="{{ url_for('health') }}">system health</a>.</p></div></section>
       {% elif page == 'login' %}
-      <div class="heading"><div><p class="eyebrow">SECURE ACCESS</p><img class="login-logo" src="{{ url_for('static', filename='ewu-logo.png') }}" alt="East West University logo"><h1>Sign in to the laboratory portal</h1><p>Students can register a new account or sign in after administrator verification.</p></div></div>
+      <div class="heading"><div><p class="eyebrow">SECURE ACCESS</p><img class="login-logo" src="{{ url_for('static', filename='ewu-logo.png') }}" alt="East West University logo"><h1>Sign in to the laboratory portal</h1><p>{{ 'Students can register a new account or sign in after administrator verification.' if admin_review else 'Create a student account, sign in and reserve available laboratory equipment.' }}</p></div></div>
       <section class="panel form-panel"><form method="post" class="form-grid">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label>Account type<select name="role"><option value="student" {% if selected_role != 'admin' %}selected{% endif %}>Student</option><option value="admin" {% if selected_role == 'admin' %}selected{% endif %}>Administrator</option></select></label>
-      <label>Student ID / Admin ID<input name="student_id" autocomplete="username" required maxlength="40" value="{{ entered_id|default('') }}"></label>
+      {% if admin_review %}<label>Account type<select name="role"><option value="student" {% if selected_role != 'admin' %}selected{% endif %}>Student</option><option value="admin" {% if selected_role == 'admin' %}selected{% endif %}>Administrator</option></select></label>{% else %}<input type="hidden" name="role" value="student">{% endif %}
+      <label>{{ 'Student ID / Admin ID' if admin_review else 'Student ID' }}<input name="student_id" autocomplete="username" required maxlength="40" value="{{ entered_id|default('') }}"></label>
       <label>Password<input name="password" type="password" autocomplete="current-password" maxlength="256" required></label>
       <div class="form-actions"><a class="btn secondary" href="{{ url_for('signup') }}">Create student account</a><button class="btn primary" type="submit">Sign in</button></div>
       </form></section>
       {% elif page == 'signup' %}
-      <div class="heading"><div><p class="eyebrow">STUDENT REGISTRATION</p><h1>Create your student account</h1><p>Use a fictional student ID for this academic demonstration. An administrator must verify your registration.</p></div></div>
+      <div class="heading"><div><p class="eyebrow">STUDENT REGISTRATION</p><h1>Create your student account</h1><p>Use a fictional student ID for this academic demonstration. {{ 'An administrator must verify your registration.' if admin_review else 'You can sign in immediately after registering.' }}</p></div></div>
       <section class="panel form-panel"><form method="post" class="form-grid">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Student ID<input name="student_id" maxlength="40" required autocomplete="username" value="{{ entered_id|default('') }}"></label>
@@ -70,13 +70,13 @@
       {% include '_reservations.html' %}</section>
       {% elif page == 'equipment' %}
       <div class="heading"><div><p class="eyebrow">INVENTORY</p><h1>Laboratory equipment</h1><p>Browse the equipment catalogue and total available stock.</p></div>{% if can_reserve %}<a class="btn primary" href="{{ url_for('reserve') }}">+ New reservation</a>{% endif %}</div>
-      <section class="panel"><div class="panel-head"><div><h2>Equipment catalogue</h2><p>{{ items|length }} distinct equipment items · slot availability checked on submission and approval</p></div><input id="search" type="search" placeholder="Search equipment..." aria-label="Search equipment"></div>
+      <section class="panel"><div class="panel-head"><div><h2>Equipment catalogue</h2><p>{{ items|length }} distinct equipment items · {{ 'slot availability checked on submission and approval' if admin_review else 'slot availability checked before confirmation' }}</p></div><input id="search" type="search" placeholder="Search equipment..." aria-label="Search equipment"></div>
       <div class="table-wrap"><table id="equipment-table"><thead><tr><th>Equipment ID</th><th>Equipment name</th><th>Category</th><th>Available quantity (stock)</th></tr></thead><tbody>
       {% for item in items %}<tr><td class="muted">{{ item.id }}</td><td><strong>{{ item.name }}</strong></td><td>{{ item.category }}</td><td><span class="pill {{ 'approved' if item.quantity else 'rejected' }}">{{ item.quantity }} units</span></td></tr>{% endfor %}
       </tbody></table><p id="no-match" class="empty" hidden>No matching equipment.</p></div></section>
       {% elif page == 'reserve' %}
       <div class="heading"><div><p class="eyebrow">BOOKING</p><h1>New reservation</h1><p>Complete the form to request laboratory equipment.</p></div></div>
-      <section class="panel form-panel"><div class="panel-head"><div><h2>Reservation details</h2><p>All fields are required. Requests are submitted as Pending.</p></div></div>
+      <section class="panel form-panel"><div class="panel-head"><div><h2>Reservation details</h2><p>All fields are required. {{ 'Requests are submitted as Pending.' if admin_review else 'Available equipment is booked automatically after validation.' }}</p></div></div>
       <form method="post" class="form-grid" id="reservation-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>Student ID<input name="student_id" placeholder="e.g. 2024-1-60-001" maxlength="40" pattern="[A-Za-z0-9][A-Za-z0-9\-]*" required value="{{ current_student or values.get('student_id','') }}" {% if current_student %}readonly{% endif %}></label>

@@ -39,6 +39,7 @@ def create_app(config=None):
         DATABASE_URL=os.environ.get('DATABASE_URL', '').strip() or None,
         ADMIN_PASSWORD=os.environ.get('ADMIN_PASSWORD'),
         ADMIN_ID='SWNN',
+        ENABLE_ADMIN_REVIEW=os.environ.get('ENABLE_ADMIN_REVIEW', '').lower() == 'true',
         AUTH_REQUIRED=True,
         PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
         ONLINE_DEMO=bool(os.environ.get('VERCEL')),
@@ -52,9 +53,10 @@ def create_app(config=None):
         if 'DATABASE' in config and 'DATABASE_URL' not in config:
             app.config['DATABASE_URL'] = None
     remote = bool(app.config['DATABASE_URL'])
+    admin_review = bool(app.config['ENABLE_ADMIN_REVIEW']) or (app.testing and app.config.get('AUTH_REQUIRED') is False)
     missing = []
     if app.config['ONLINE_DEMO'] and not app.testing:
-        for key in ('DATABASE_URL', 'SECRET_KEY', 'ADMIN_PASSWORD'):
+        for key in (('DATABASE_URL', 'SECRET_KEY', 'ADMIN_PASSWORD') if admin_review else ('DATABASE_URL', 'SECRET_KEY')):
             if not os.environ.get(key, '').strip():
                 missing.append(key)
     # A hosted instance must never silently create an isolated reservation database.
@@ -115,13 +117,20 @@ def create_app(config=None):
     auth_required = not (app.testing and app.config.get('AUTH_REQUIRED') is False)
 
     def role():
-        return session.get('role') if auth_required else 'legacy'
+        if not auth_required:
+            return 'legacy'
+        current = session.get('role')
+        if current == 'admin' and not admin_review:
+            return None
+        return current
 
     def student_identity():
         return session.get('student_id') if role() == 'student' else None
 
     @app.before_request
     def require_login():
+        if not admin_review and request.endpoint in ('update_status', 'student_accounts', 'approve_student'):
+            abort(403)
         if not auth_required or request.endpoint in ('login', 'signup', 'static', 'health', None):
             return
         if role() not in ('admin', 'student'):
@@ -140,7 +149,9 @@ def create_app(config=None):
         if role() in ('student', 'admin'):
             return redirect(url_for('dashboard'))
         if request.method == 'POST':
-            selected = request.form.get('role')
+            selected = request.form.get('role', 'student')
+            if selected == 'admin' and not admin_review:
+                abort(403)
             username = request.form.get('student_id', '').strip().upper()
             password = request.form.get('password', '')
             if len(password) > 256 or len(username) > 40:
@@ -159,8 +170,12 @@ def create_app(config=None):
                 account = db().execute('SELECT password_hash, approved FROM students WHERE student_id = ?', (username,)).fetchone()
                 authenticated = bool(account and account['password_hash'] and check_password_hash(account['password_hash'], password))
                 if authenticated and not account['approved']:
-                    flash('Your account is awaiting administrator approval.', 'error')
-                    return render_template('index.html', page='login', selected_role=selected, entered_id=username), 403
+                    if admin_review:
+                        flash('Your account is awaiting administrator approval.', 'error')
+                        return render_template('index.html', page='login', selected_role=selected, entered_id=username), 403
+                    connection = db()
+                    connection.execute('UPDATE students SET approved = 1 WHERE student_id = ?', (username,))
+                    connection.commit()
             if authenticated:
                 session.clear()
                 session['role'] = selected
@@ -185,14 +200,14 @@ def create_app(config=None):
                 return render_template('index.html', page='signup', entered_id=username), 400
             connection = db()
             cursor = connection.execute(
-                'INSERT INTO students (student_id, password_hash, approved) VALUES (?, ?, 0) ON CONFLICT (student_id) DO NOTHING',
-                (username, generate_password_hash(password)),
+                "INSERT INTO students (student_id, password_hash, approved) VALUES (?, ?, ?) ON CONFLICT (student_id) DO UPDATE SET password_hash = excluded.password_hash, approved = excluded.approved WHERE students.password_hash = ''",
+                (username, generate_password_hash(password), 0 if admin_review else 1),
             )
             connection.commit()
             if not cursor.rowcount:
                 flash('This ID is already registered. Contact your administrator for account help.', 'error')
                 return render_template('index.html', page='signup', entered_id=username), 409
-            flash('Account created. Ask the administrator to verify and activate your student ID before signing in.', 'success')
+            flash('Account created. Ask the administrator to verify and activate your student ID before signing in.' if admin_review else 'Account created successfully. You can sign in now.', 'success')
             return redirect(url_for('login'))
         return render_template('index.html', page='signup')
 
@@ -235,7 +250,7 @@ def create_app(config=None):
     def common():
         if 'csrf' not in session:
             session['csrf'] = secrets.token_hex(24)
-        return {'csrf_token': session['csrf'], 'today': local_today().isoformat(), 'online_demo': app.config['ONLINE_DEMO'], 'persistent_database': remote and not missing, 'configuration_missing': missing, 'role': role(), 'current_student': student_identity(), 'can_manage': role() in ('admin', 'legacy'), 'can_reserve': role() in ('student', 'legacy')}
+        return {'csrf_token': session['csrf'], 'today': local_today().isoformat(), 'online_demo': app.config['ONLINE_DEMO'], 'persistent_database': remote and not missing, 'configuration_missing': missing, 'admin_review': admin_review, 'role': role(), 'current_student': student_identity(), 'can_manage': role() in ('admin', 'legacy'), 'can_reserve': role() in ('student', 'legacy')}
 
     @app.before_request
     def verify_csrf():
@@ -283,7 +298,8 @@ def create_app(config=None):
             connection.execute('SELECT COUNT(*) AS total FROM equipment').fetchone()
             connection.execute('SELECT COUNT(*) AS total FROM reservations').fetchone()
             connection.execute('SELECT COUNT(*) AS total FROM students').fetchone()
-            connection.execute('SELECT COUNT(*) AS total FROM admins').fetchone()
+            if admin_review:
+                connection.execute('SELECT COUNT(*) AS total FROM admins').fetchone()
             connection.execute('SELECT approved FROM students LIMIT 1').fetchone()
         except Exception as exc:
             # Never return raw exception messages: drivers may include credential-bearing DSNs.
@@ -377,12 +393,12 @@ def create_app(config=None):
                 return render_template('index.html', page='reserve', items=inventory(), values=values), 400
             connection.execute(
                 '''INSERT INTO reservations
-                   (student_id, equipment_id, reservation_date, start_time, end_time, quantity)
-                   VALUES (?, ?, ?, ?, ?, ?)''',
-                (student, equipment_id, day, start, end, quantity),
+                   (student_id, equipment_id, reservation_date, start_time, end_time, quantity, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (student, equipment_id, day, start, end, quantity, 'Pending' if admin_review else 'Approved'),
             )
             connection.commit()
-            flash('Reservation submitted successfully. Status: Pending.', 'success')
+            flash('Reservation submitted successfully. Status: Pending.' if admin_review else 'Reservation confirmed successfully. Status: Approved.', 'success')
             return redirect(url_for('manage'))
         return render_template('index.html', page='reserve', items=inventory(), values=values)
 
