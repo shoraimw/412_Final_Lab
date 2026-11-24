@@ -173,3 +173,8 @@ Tests use isolated temporary databases. See [TEST_REPORT.md](TEST_REPORT.md) for
 The Flask development server is appropriate for this lab demonstration, not production hosting. The project does not implement authentication/authorization. Do not expose it to the public internet as-is.
 
 See [INSTRUCTOR_DEMO_GUIDE.md](INSTRUCTOR_DEMO_GUIDE.md) for the demonstration sequence and ten viva questions.
+
+
+## Vercel online demonstration
+
+Vercel detects the exported Flask WSGI app in app.py. The original SQLite database is retained locally. On Vercel only, the app creates a temporary database in /tmp and seeds the catalogue on startup. Data is not durable across cold starts, instances or redeployments; this is an academic demo, not an official university portal. Use fictional student IDs only. Set a random SECRET_KEY in the Vercel project environment; do not commit it. For real shared persistence, connect a managed SQLite-compatible database and migrate the transaction/row adapter before production use. Static asset copies in public/static are served by the Vercel CDN. Campus photo: East West University website. Logo: Wikimedia Commons (East-west-university-LogoSVG.svg).

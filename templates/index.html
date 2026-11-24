@@ -3,28 +3,31 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ page|capitalize }} | EWU Laboratory</title>
+  <title>{{ page|capitalize }} | East West University Laboratory</title>
+  <link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/1/16/East-west-university-LogoSVG.svg">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script defer src="{{ url_for('static', filename='app.js') }}"></script>
 </head>
 <body>
   <aside class="sidebar" id="sidebar">
-    <a class="brand" href="{{ url_for('dashboard') }}"><span class="mark">EWU</span><span>East West University<small>Laboratory Services</small></span></a>
+    <a class="brand" href="{{ url_for('dashboard') }}"><img class="ewu-logo" src="https://upload.wikimedia.org/wikipedia/commons/1/16/East-west-university-LogoSVG.svg" alt="East West University logo" width="76" height="50"><span>East West University<small>Laboratory Services</small></span></a>
     <p class="nav-label">WORKSPACE</p>
     <nav aria-label="Main navigation">
       {% for key, endpoint, symbol, label in [('dashboard','dashboard','▦','Dashboard'),('equipment','equipment','▤','Equipment'),('reserve','reserve','＋','New Reservation'),('reservations','manage','☷','Reservations')] %}
       <a href="{{ url_for(endpoint) }}" class="{{ 'active' if page == key else '' }}" {% if page == key %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">{{ symbol }}</span>{{ label }}</a>
       {% endfor %}
     </nav>
-    <div class="side-footer">Academic laboratory portal<br><small>Software Engineering · Parts A &amp; B</small></div>
+    <div class="side-footer">Academic project · CSE412<br><small>Department of Computer Science &amp; Engineering</small></div>
   </aside>
   <main>
-    <header class="topbar"><button class="menu" id="menu" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button><span>University Laboratory Equipment Reservation System</span><span class="portal">EWU PORTAL</span></header>
+    <header class="topbar"><button class="menu" id="menu" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button><span>University Laboratory Equipment Reservation System</span><span class="portal">EWU · STUDENT PROJECT</span></header>
     <div class="content">
+      {% if online_demo %}<div class="demo-note" role="note">Academic demonstration only — not an official EWU service. Use fictional student IDs. Online reservations may reset or differ across server instances.</div>{% endif %}
       {% for category, message in get_flashed_messages(with_categories=true) %}
       <div class="notice {{ category }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</div>
       {% endfor %}
       {% if page == 'dashboard' %}
+      <section class="campus-hero"><div><p class="eyebrow">EAST WEST UNIVERSITY · CSE412</p><h2>Laboratory Equipment Reservation System</h2><p>Excellence in education · Aftabnagar, Dhaka</p><a class="hero-link" href="https://www.ewubd.edu/" target="_blank" rel="noopener noreferrer">University website ↗</a></div><img src="https://www.ewubd.edu/themes/east-west-university/assets/vision-mission_img.jpg" alt="East West University red-brick campus courtyard" width="600" height="484"></section>
       <div class="heading"><div><p class="eyebrow">OVERVIEW</p><h1>Laboratory dashboard</h1><p>Manage equipment and reservation requests in one place.</p></div><a class="btn primary" href="{{ url_for('reserve') }}">+ New reservation</a></div>
       <section class="cards" aria-label="Reservation statistics">
         {% for key, label, icon, tone in [('equipment','Total equipment items','▤','blue'),('Pending','Pending requests','◷','amber'),('Approved','Approved requests','✓','green'),('Rejected','Rejected requests','×','red')] %}
@@ -56,7 +59,7 @@
       <div class="heading"><div><p class="eyebrow">MANAGEMENT</p><h1>Reservation requests</h1><p>Review, approve or reject student equipment reservations.</p></div><a class="btn primary" href="{{ url_for('reserve') }}">+ New reservation</a></div>
       <section class="panel"><div class="panel-head"><div><h2>All requests</h2><p>{{ rows|length }} submitted requests</p></div></div>{% include '_reservations.html' %}</section>
       {% endif %}
-      <footer>East West University · Laboratory Services · Parts A &amp; B</footer>
+      <footer>East West University · CSE412 Software Engineering · Academic demonstration</footer>
     </div>
   </main>
 </body>

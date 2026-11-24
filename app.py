@@ -3,12 +3,17 @@ import os
 import re
 import secrets
 import sqlite3
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
 
 ROOT = Path(__file__).resolve().parent
+
+
+def local_today():
+    return datetime.now(ZoneInfo('Asia/Dhaka')).date()
 SAMPLE_EQUIPMENT = [
     ('EQ-001', 'Digital Oscilloscope', 'Electronics', 8),
     ('EQ-002', 'Digital Multimeter', 'Electronics', 20),
@@ -28,7 +33,11 @@ SAMPLE_EQUIPMENT = [
 def create_app(config=None):
     app = Flask(__name__)
     app.config.from_mapping(
-        DATABASE=str(Path(app.instance_path) / 'laboratory.sqlite3'),
+        DATABASE=os.environ.get('DATABASE_PATH') or (('/tmp/ewu-laboratory.sqlite3') if os.environ.get('VERCEL') else str(Path(app.instance_path) / 'laboratory.sqlite3')),
+        ONLINE_DEMO=bool(os.environ.get('VERCEL')),
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE='Lax',
+        SESSION_COOKIE_SECURE=bool(os.environ.get('VERCEL')),
         SECRET_KEY=os.environ.get('SECRET_KEY') or secrets.token_hex(32),
     )
     if config:
@@ -61,7 +70,7 @@ def create_app(config=None):
     def common():
         if 'csrf' not in session:
             session['csrf'] = secrets.token_hex(24)
-        return {'csrf_token': session['csrf'], 'today': date.today().isoformat()}
+        return {'csrf_token': session['csrf'], 'today': local_today().isoformat(), 'online_demo': app.config['ONLINE_DEMO']}
 
     @app.before_request
     def verify_csrf():
@@ -120,7 +129,7 @@ def create_app(config=None):
                 try:
                     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', day):
                         raise ValueError
-                    if date.fromisoformat(day) < date.today():
+                    if date.fromisoformat(day) < local_today():
                         error = 'Reservation date cannot be in the past.'
                 except ValueError:
                     error = 'Enter a valid reservation date.'
@@ -167,7 +176,7 @@ def create_app(config=None):
                 ('equipment_id', 'reservation_date', 'start_time', 'end_time')}
         day, start, end = (slot[key] for key in ('reservation_date', 'start_time', 'end_time'))
         try:
-            if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', day) or date.fromisoformat(day) < date.today():
+            if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', day) or date.fromisoformat(day) < local_today():
                 raise ValueError
             if not all(re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', t) for t in (start, end)) or start >= end:
                 raise ValueError
@@ -227,5 +236,7 @@ def create_app(config=None):
     return app
 
 
+app = create_app()
+
 if __name__ == '__main__':
-    create_app().run(host='127.0.0.1', port=5000)
+    app.run(host='127.0.0.1', port=5000)
