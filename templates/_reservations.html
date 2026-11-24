@@ -1,0 +1,10 @@
+<div class="table-wrap">
+  <table><thead><tr><th>Request ID</th><th>Student ID</th><th>Equipment</th><th>Date</th><th>Time</th><th>Qty</th><th>Status</th>{% if page == 'reservations' %}<th>Actions</th>{% endif %}</tr></thead>
+  <tbody>{% for row in rows %}
+    <tr><td class="muted">#{{ row.id }}</td><td>{{ row.student_id }}</td><td><strong>{{ row.equipment_name }}</strong><small class="muted block">{{ row.equipment_id }}</small></td><td>{{ row.reservation_date }}</td><td>{{ row.start_time }}–{{ row.end_time }}</td><td>{{ row.quantity }}</td><td><span class="pill {{ row.status|lower }}">{{ row.status }}</span></td>
+    {% if page == 'reservations' %}<td>{% if row.status == 'Pending' %}<div class="actions">
+      <form method="post" action="{{ url_for('update_status', reservation_id=row.id, action='approve') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn approve" type="submit">Approve</button></form>
+      <form method="post" action="{{ url_for('update_status', reservation_id=row.id, action='reject') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn reject" type="submit">Reject</button></form>
+    </div>{% else %}<span class="muted">Reviewed</span>{% endif %}</td>{% endif %}</tr>
+  {% else %}<tr><td colspan="{{ 8 if page == 'reservations' else 7 }}" class="empty">No reservations yet. Submit a new request to get started.</td></tr>{% endfor %}</tbody></table>
+</div>

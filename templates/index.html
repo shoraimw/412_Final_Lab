@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page|capitalize }} | EWU Laboratory</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="{{ url_for('dashboard') }}"><span class="mark">EWU</span><span>East West University<small>Laboratory Services</small></span></a>
+    <p class="nav-label">WORKSPACE</p>
+    <nav aria-label="Main navigation">
+      {% for key, endpoint, symbol, label in [('dashboard','dashboard','▦','Dashboard'),('equipment','equipment','▤','Equipment'),('reserve','reserve','＋','New Reservation'),('reservations','manage','☷','Reservations')] %}
+      <a href="{{ url_for(endpoint) }}" class="{{ 'active' if page == key else '' }}" {% if page == key %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">{{ symbol }}</span>{{ label }}</a>
+      {% endfor %}
+    </nav>
+    <div class="side-footer">Academic laboratory portal<br><small>Software Engineering · Part A</small></div>
+  </aside>
+  <main>
+    <header class="topbar"><button class="menu" id="menu" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button><span>University Laboratory Equipment Reservation System</span><span class="portal">EWU PORTAL</span></header>
+    <div class="content">
+      {% for category, message in get_flashed_messages(with_categories=true) %}
+      <div class="notice {{ category }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</div>
+      {% endfor %}
+      {% if page == 'dashboard' %}
+      <div class="heading"><div><p class="eyebrow">OVERVIEW</p><h1>Laboratory dashboard</h1><p>Manage equipment and reservation requests in one place.</p></div><a class="btn primary" href="{{ url_for('reserve') }}">+ New reservation</a></div>
+      <section class="cards" aria-label="Reservation statistics">
+        {% for key, label, icon, tone in [('equipment','Total equipment items','▤','blue'),('Pending','Pending requests','◷','amber'),('Approved','Approved requests','✓','green'),('Rejected','Rejected requests','×','red')] %}
+        <article class="stat"><span class="stat-icon {{ tone }}">{{ icon }}</span><p>{{ label }}</p><strong>{{ stats[key] }}</strong></article>
+        {% endfor %}
+      </section>
+      <section class="panel"><div class="panel-head"><div><h2>Recent reservations</h2><p>Latest five submitted requests.</p></div><a href="{{ url_for('manage') }}">View all →</a></div>
+      {% include '_reservations.html' %}</section>
+      {% elif page == 'equipment' %}
+      <div class="heading"><div><p class="eyebrow">INVENTORY</p><h1>Laboratory equipment</h1><p>Browse the equipment catalogue and total available stock.</p></div><a class="btn primary" href="{{ url_for('reserve') }}">+ New reservation</a></div>
+      <section class="panel"><div class="panel-head"><div><h2>Equipment catalogue</h2><p>{{ items|length }} distinct equipment items · slot availability checked on approval</p></div><input id="search" type="search" placeholder="Search equipment..." aria-label="Search equipment"></div>
+      <div class="table-wrap"><table id="equipment-table"><thead><tr><th>Equipment ID</th><th>Equipment name</th><th>Category</th><th>Available quantity (stock)</th></tr></thead><tbody>
+      {% for item in items %}<tr><td class="muted">{{ item.id }}</td><td><strong>{{ item.name }}</strong></td><td>{{ item.category }}</td><td><span class="pill {{ 'approved' if item.quantity else 'rejected' }}">{{ item.quantity }} units</span></td></tr>{% endfor %}
+      </tbody></table><p id="no-match" class="empty" hidden>No matching equipment.</p></div></section>
+      {% elif page == 'reserve' %}
+      <div class="heading"><div><p class="eyebrow">BOOKING</p><h1>New reservation</h1><p>Complete the form to request laboratory equipment.</p></div></div>
+      <section class="panel form-panel"><div class="panel-head"><div><h2>Reservation details</h2><p>All fields are required. Requests are submitted as Pending.</p></div></div>
+      <form method="post" class="form-grid" id="reservation-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>Student ID<input name="student_id" placeholder="e.g. 2024-1-60-001" maxlength="40" required value="{{ values.get('student_id','') }}"></label>
+        <label>Equipment<select name="equipment_id" id="equipment" required><option value="">Select equipment</option>{% for item in items %}<option value="{{ item.id }}" data-stock="{{ item.quantity }}" {% if values.get('equipment_id') == item.id %}selected{% endif %}>{{ item.name }} ({{ item.id }}) — {{ item.quantity }} units</option>{% endfor %}</select></label>
+        <label>Reservation date<input type="date" name="reservation_date" min="{{ today }}" required value="{{ values.get('reservation_date','') }}"></label>
+        <label>Required quantity<input type="number" name="quantity" id="quantity" min="1" step="1" required value="{{ values.get('quantity','1') }}"><small id="stock-note">Select equipment to see stock.</small></label>
+        <label>Start time<input type="time" name="start_time" id="start-time" required value="{{ values.get('start_time','') }}"></label>
+        <label>End time<input type="time" name="end_time" id="end-time" required value="{{ values.get('end_time','') }}"></label>
+        <div class="form-actions"><a class="btn secondary" href="{{ url_for('dashboard') }}">Cancel</a><button class="btn primary" type="submit">Submit reservation</button></div>
+      </form></section>
+      {% else %}
+      <div class="heading"><div><p class="eyebrow">MANAGEMENT</p><h1>Reservation requests</h1><p>Review, approve or reject student equipment reservations.</p></div><a class="btn primary" href="{{ url_for('reserve') }}">+ New reservation</a></div>
+      <section class="panel"><div class="panel-head"><div><h2>All requests</h2><p>{{ rows|length }} submitted requests</p></div></div>{% include '_reservations.html' %}</section>
+      {% endif %}
+      <footer>East West University · Laboratory Services · Part A</footer>
+    </div>
+  </main>
+</body>
+</html>
