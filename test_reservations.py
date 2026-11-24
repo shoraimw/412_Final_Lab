@@ -17,10 +17,10 @@ class ReservationQA(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = str(Path(self.tmp.name) / "test.sqlite3")
-        clock = patch("app.date", FixedDate)
+        clock = patch("app.local_today", return_value=FixedDate.today())
         clock.start()
         self.addCleanup(clock.stop)
-        self.app = create_app({"TESTING": True, "DATABASE": self.path, "SECRET_KEY": "qa-only"})
+        self.app = create_app({"TESTING": True, "AUTH_REQUIRED": False, "DATABASE": self.path, "SECRET_KEY": "qa-only"})
         self.client = self.app.test_client()
         with sqlite3.connect(self.path) as db:
             db.execute("UPDATE equipment SET quantity=5 WHERE id='EQ-001'")

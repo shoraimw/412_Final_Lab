@@ -3,10 +3,11 @@ import os
 import re
 import secrets
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from postgres_adapter import PostgresConnection
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
 
@@ -36,6 +37,9 @@ def create_app(config=None):
     app.config.from_mapping(
         DATABASE=os.environ.get('DATABASE_PATH') or (('/tmp/ewu-laboratory.sqlite3') if os.environ.get('VERCEL') else str(Path(app.instance_path) / 'laboratory.sqlite3')),
         DATABASE_URL=os.environ.get('DATABASE_URL'),
+        ADMIN_PASSWORD=os.environ.get('ADMIN_PASSWORD'),
+        AUTH_REQUIRED=True,
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
         ONLINE_DEMO=bool(os.environ.get('VERCEL')),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE='Lax',
@@ -78,11 +82,90 @@ def create_app(config=None):
             )
             connection.commit()
 
+
+    auth_required = not (app.testing and app.config.get('AUTH_REQUIRED') is False)
+
+    def role():
+        return session.get('role') if auth_required else 'legacy'
+
+    def student_identity():
+        return session.get('student_id') if role() == 'student' else None
+
+    @app.before_request
+    def require_login():
+        if not auth_required or request.endpoint in ('login', 'static', 'health', None):
+            return
+        if role() not in ('admin', 'student'):
+            if request.endpoint == 'availability':
+                return jsonify(error='Login required.'), 401
+            if request.method == 'POST':
+                abort(403)
+            return redirect(url_for('login'))
+        if request.endpoint in ('update_status', 'student_accounts') and role() != 'admin':
+            abort(403)
+        if request.endpoint == 'reserve' and role() != 'student':
+            abort(403)
+
+    @app.route('/login', methods=['GET', 'POST'])
+    def login():
+        if role() in ('student', 'admin'):
+            return redirect(url_for('dashboard'))
+        if request.method == 'POST':
+            selected = request.form.get('role')
+            username = request.form.get('student_id', '').strip().upper()
+            password = request.form.get('password', '')
+            if len(password) > 256:
+                abort(400)
+            authenticated = False
+            if selected == 'admin':
+                expected = app.config.get('ADMIN_PASSWORD') or ''
+                authenticated = bool(expected) and secrets.compare_digest(password.encode(), expected.encode())
+            elif selected == 'student':
+                account = db().execute('SELECT password_hash FROM students WHERE student_id = ?', (username,)).fetchone()
+                authenticated = bool(account and check_password_hash(account['password_hash'], password))
+            if authenticated:
+                session.clear()
+                session['role'] = selected
+                if selected == 'student':
+                    session['student_id'] = username
+                session.permanent = True
+                return redirect(url_for('dashboard'))
+            flash('Invalid login details or account not configured.', 'error')
+            return render_template('index.html', page='login'), 401
+        return render_template('index.html', page='login')
+
+    @app.post('/logout')
+    def logout():
+        session.clear()
+        return redirect(url_for('login'))
+
+    @app.route('/admin/students', methods=['GET', 'POST'])
+    def student_accounts():
+        if request.method == 'POST':
+            username = request.form.get('student_id', '').strip().upper()
+            password = request.form.get('password', '')
+            if not re.fullmatch(r'[A-Z0-9][A-Z0-9-]{0,39}', username) or not 12 <= len(password) <= 256:
+                flash('Enter a valid student ID and a password of at least 12 characters.', 'error')
+                return redirect(url_for('student_accounts'))
+            connection = db()
+            cursor = connection.execute(
+                'INSERT INTO students (student_id, password_hash) VALUES (?, ?) ON CONFLICT (student_id) DO NOTHING',
+                (username, generate_password_hash(password)),
+            )
+            connection.commit()
+            if cursor.rowcount:
+                flash('Student account created. Share credentials privately.', 'success')
+            else:
+                flash('This student account already exists.', 'error')
+            return redirect(url_for('student_accounts'))
+        accounts = db().execute('SELECT student_id FROM students ORDER BY student_id').fetchall()
+        return render_template('index.html', page='students', accounts=accounts)
+
     @app.context_processor
     def common():
         if 'csrf' not in session:
             session['csrf'] = secrets.token_hex(24)
-        return {'csrf_token': session['csrf'], 'today': local_today().isoformat(), 'online_demo': app.config['ONLINE_DEMO'], 'persistent_database': remote}
+        return {'csrf_token': session['csrf'], 'today': local_today().isoformat(), 'online_demo': app.config['ONLINE_DEMO'], 'persistent_database': remote, 'role': role(), 'current_student': student_identity(), 'can_manage': role() in ('admin', 'legacy'), 'can_reserve': role() in ('student', 'legacy')}
 
     @app.before_request
     def verify_csrf():
@@ -95,10 +178,12 @@ def create_app(config=None):
         return db().execute('SELECT * FROM equipment ORDER BY id').fetchall()
 
     def reservations():
-        return db().execute(
-            '''SELECT r.*, e.name AS equipment_name FROM reservations r
-               JOIN equipment e ON e.id = r.equipment_id ORDER BY r.id DESC'''
-        ).fetchall()
+        query = '''SELECT r.*, e.name AS equipment_name FROM reservations r
+                   JOIN equipment e ON e.id = r.equipment_id'''
+        student = student_identity()
+        if student:
+            return db().execute(query + ' WHERE LOWER(r.student_id) = LOWER(?) ORDER BY r.id DESC', (student,)).fetchall()
+        return db().execute(query + ' ORDER BY r.id DESC').fetchall()
 
     @app.get('/api/health')
     def health():
@@ -117,7 +202,10 @@ def create_app(config=None):
         connection = db()
         stats = {'equipment': connection.execute('SELECT COUNT(*) AS total FROM equipment').fetchone()['total'],
                  'Pending': 0, 'Approved': 0, 'Rejected': 0}
-        for row in connection.execute('SELECT status, COUNT(*) AS total FROM reservations GROUP BY status'):
+        student = student_identity()
+        query = 'SELECT status, COUNT(*) AS total FROM reservations'
+        groups = connection.execute(query + ' WHERE LOWER(student_id) = LOWER(?) GROUP BY status', (student,)) if student else connection.execute(query + ' GROUP BY status')
+        for row in groups:
             stats[row['status']] = row['total']
         return render_template('index.html', page='dashboard', stats=stats, rows=reservations()[:5])
 
@@ -129,7 +217,7 @@ def create_app(config=None):
     def reserve():
         values = request.form if request.method == 'POST' else {}
         if request.method == 'POST':
-            student = values.get('student_id', '').strip()
+            student = student_identity() or values.get('student_id', '').strip()
             equipment_id = values.get('equipment_id', '')
             day = values.get('reservation_date', '')
             start = values.get('start_time', '')
@@ -211,7 +299,7 @@ def create_app(config=None):
         if item is None:
             return jsonify(error='Select valid laboratory equipment.'), 400
         available = max(0, item['quantity'] - peak_reserved(connection, slot))
-        student = request.args.get('student_id', '').strip()
+        student = student_identity() or (request.args.get('student_id', '').strip() if not auth_required else '')
         return jsonify(available=available, stock=item['quantity'],
                        overlap=bool(student and overlapping_student(connection, student, slot)))
 

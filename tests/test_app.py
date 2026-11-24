@@ -11,7 +11,7 @@ class ReservationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.database = str(Path(self.temp.name) / 'test.sqlite3')
-        self.app = create_app({'TESTING': True, 'DATABASE': self.database, 'SECRET_KEY': 'test'})
+        self.app = create_app({'TESTING': True, 'AUTH_REQUIRED': False, 'DATABASE': self.database, 'SECRET_KEY': 'test'})
         self.client = self.app.test_client()
         self.day = (date.today() + timedelta(days=1)).isoformat()
         self.client.get('/reserve')

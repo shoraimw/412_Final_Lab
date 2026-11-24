@@ -170,14 +170,14 @@ Tests use isolated temporary databases. See [TEST_REPORT.md](TEST_REPORT.md) for
 
 ## Local-use limitation
 
-The Flask development server is appropriate for this lab demonstration, not production hosting. The project does not implement authentication/authorization. Do not expose it to the public internet as-is.
+The Flask development server is appropriate for this lab demonstration, not production hosting. The portal uses role-based sessions. Set a strong ADMIN_PASSWORD and restrict access to authorized lab participants; do not use real student data in this academic demo.
 
 See [INSTRUCTOR_DEMO_GUIDE.md](INSTRUCTOR_DEMO_GUIDE.md) for the demonstration sequence and ten viva questions.
 
 
 ## Vercel online demonstration with Supabase PostgreSQL
 
-Local execution and tests still use SQLite. Online deployment supports a shared PostgreSQL database when DATABASE_URL is set. This is an academic demonstration only: use fictional student IDs. There is no separate administrator login yet, so restrict access to the deployment to lab participants if necessary.
+Local execution and tests still use SQLite. Online deployment supports a shared PostgreSQL database when DATABASE_URL is set. This is an academic demonstration only: use fictional student IDs. Admin and student sessions are separated. Admin issues student accounts; real university identity verification is outside this academic demo.
 
 1. Create a dedicated Supabase project (not an unrelated app's database).
 2. Run database/postgres.sql in the project's SQL Editor. It creates a private schema, enables RLS, and seeds the 12 equipment rows without overwriting existing stock.
@@ -189,3 +189,6 @@ Local execution and tests still use SQLite. Online deployment supports a shared 
 PostgreSQL writes lock the reservation table before checking availability so concurrent approvals cannot overbook. All user values are parameterized. Local tests can continue using separate SQLite files. See https://supabase.com/docs/guides/database/connecting-to-postgres.
 
 Static asset copies in public/static are served by Vercel. Campus photo: East West University website. Logo: Wikimedia Commons.
+
+## Role-based reservation workflow
+Set ADMIN_PASSWORD (a strong unique password) as a server-only Vercel secret, in addition to DATABASE_URL and SECRET_KEY. Apply database/student_accounts.sql to existing PostgreSQL deployments before deploying this version. Login as Administrator (leave Student ID blank), create accounts in Student accounts, then give each student their credentials privately. Students sign in with ID and password; requests always use the authenticated ID, and students see only their own requests. Only admin can approve or reject. Approval rechecks availability under a database write lock. If insufficient stock remains, the request stays Pending until reviewed. No open self-registration is provided to prevent claiming someone else's ID. For local admin login set ADMIN_PASSWORD in the shell before launching Flask. Legacy business-rule tests use an explicit testing-only bypass; role tests use authentication. For a real university deployment add institutional SSO, rate limiting, password reset and auditing.
