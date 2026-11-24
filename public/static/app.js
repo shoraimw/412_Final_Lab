@@ -44,7 +44,7 @@ if (equipment) {
     else quantity.max = stock;
     note.textContent = stock === undefined ? 'Select equipment to see stock.' : stock + ' total units. Select a valid date and time to check availability.';
     if (!equipment.value || !day.value || !day.validity.valid || !start.value || !end.value || end.value <= start.value) return;
-    const params = new URLSearchParams({equipment_id: equipment.value, reservation_date: day.value, start_time: start.value, end_time: end.value, student_id: student.value});
+    const params = new URLSearchParams({equipment_id: equipment.value, reservation_date: day.value, start_time: start.value, end_time: end.value, student_id: form.dataset.guest === 'true' ? '' : student.value});
     try {
       const response = await fetch('/api/availability?' + params, {cache: 'no-store'});
       if (!response.ok) throw new Error('Availability unavailable');

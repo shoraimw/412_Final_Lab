@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from postgres_adapter import PostgresConnection, DatabaseUnavailable
+from guest_api import guest_rpc
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
@@ -41,6 +42,7 @@ def create_app(config=None):
         ADMIN_ID='SWNN',
         ENABLE_ADMIN_REVIEW=os.environ.get('ENABLE_ADMIN_REVIEW', '').lower() == 'true',
         AUTH_REQUIRED=True,
+        GUEST_MODE=True,
         PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
         ONLINE_DEMO=bool(os.environ.get('VERCEL')),
         SESSION_COOKIE_HTTPONLY=True,
@@ -54,17 +56,21 @@ def create_app(config=None):
             app.config['DATABASE_URL'] = None
     remote = bool(app.config['DATABASE_URL'])
     admin_review = bool(app.config['ENABLE_ADMIN_REVIEW']) or (app.testing and app.config.get('AUTH_REQUIRED') is False)
+    guest_mode = bool(app.config['GUEST_MODE']) and not admin_review
+    guest_https = guest_mode and app.config['ONLINE_DEMO']
     missing = []
     if app.config['ONLINE_DEMO'] and not app.testing:
-        for key in (('DATABASE_URL', 'SECRET_KEY', 'ADMIN_PASSWORD') if admin_review else ('DATABASE_URL', 'SECRET_KEY')):
+        for key in (('SECRET_KEY',) if guest_https else (('DATABASE_URL', 'SECRET_KEY', 'ADMIN_PASSWORD') if admin_review else ('DATABASE_URL', 'SECRET_KEY'))):
             if not os.environ.get(key, '').strip():
                 missing.append(key)
     # A hosted instance must never silently create an isolated reservation database.
-    if not remote and not missing:
+    if not remote and not guest_https and not missing:
         Path(app.config['DATABASE']).parent.mkdir(parents=True, exist_ok=True)
 
     def db():
         """One connection per request; SQLite locally or shared PostgreSQL."""
+        if guest_https:
+            raise DatabaseUnavailable('guest_api_required')
         if missing:
             raise RuntimeError('Hosted database configuration incomplete')
         if 'db' not in g:
@@ -95,7 +101,7 @@ def create_app(config=None):
         if connection is not None:
             connection.close()
 
-    if not remote and not missing:
+    if not remote and not guest_https and not missing:
         with app.app_context():
             connection = db()
             connection.executescript((ROOT / 'schema.sql').read_text(encoding='utf-8'))
@@ -117,6 +123,8 @@ def create_app(config=None):
     auth_required = not (app.testing and app.config.get('AUTH_REQUIRED') is False)
 
     def role():
+        if guest_mode:
+            return 'guest'
         if not auth_required:
             return 'legacy'
         current = session.get('role')
@@ -131,6 +139,12 @@ def create_app(config=None):
     def require_login():
         if not admin_review and request.endpoint in ('update_status', 'student_accounts', 'approve_student'):
             abort(403)
+        if guest_mode:
+            if request.endpoint in ('login', 'signup', 'logout'):
+                if request.method == 'GET':
+                    return redirect(url_for('reserve'))
+                abort(403)
+            return
         if not auth_required or request.endpoint in ('login', 'signup', 'static', 'health', None):
             return
         if role() not in ('admin', 'student'):
@@ -250,7 +264,7 @@ def create_app(config=None):
     def common():
         if 'csrf' not in session:
             session['csrf'] = secrets.token_hex(24)
-        return {'csrf_token': session['csrf'], 'today': local_today().isoformat(), 'online_demo': app.config['ONLINE_DEMO'], 'persistent_database': remote and not missing, 'configuration_missing': missing, 'admin_review': admin_review, 'role': role(), 'current_student': student_identity(), 'can_manage': role() in ('admin', 'legacy'), 'can_reserve': role() in ('student', 'legacy')}
+        return {'csrf_token': session['csrf'], 'today': local_today().isoformat(), 'online_demo': app.config['ONLINE_DEMO'], 'persistent_database': (remote or guest_https) and not missing, 'configuration_missing': missing, 'admin_review': admin_review, 'guest_mode': guest_mode, 'role': role(), 'current_student': student_identity(), 'can_manage': role() in ('admin', 'legacy'), 'can_reserve': role() in ('student', 'legacy', 'guest')}
 
     @app.before_request
     def verify_csrf():
@@ -260,9 +274,13 @@ def create_app(config=None):
                 abort(400, 'Invalid form token. Reload the page and try again.')
 
     def inventory():
+        if guest_https:
+            return guest_rpc('catalog')['items']
         return db().execute('SELECT * FROM equipment ORDER BY id').fetchall()
 
     def reservations():
+        if guest_mode:
+            return list(reversed(session.get('guest_receipts', [])))
         query = '''SELECT r.*, e.name AS equipment_name FROM reservations r
                    JOIN equipment e ON e.id = r.equipment_id'''
         student = student_identity()
@@ -274,6 +292,13 @@ def create_app(config=None):
     def health():
         if missing:
             return jsonify(status='configuration_required', missing=missing, persistent=False), 503
+        if guest_https:
+            try:
+                guest_rpc('stats')
+                guest_rpc('catalog')
+            except DatabaseUnavailable as exc:
+                return jsonify(status='unavailable', reason=exc.reason, persistent=False), 503
+            return jsonify(status='ok', database='postgresql', transport='supabase-https', persistent=True)
         if remote:
             from urllib.parse import urlsplit, unquote
             try:
@@ -332,6 +357,8 @@ def create_app(config=None):
 
     @app.get('/')
     def dashboard():
+        if guest_https:
+            return render_template('index.html', page='dashboard', stats=guest_rpc('stats'), rows=reservations()[:5])
         connection = db()
         stats = {'equipment': connection.execute('SELECT COUNT(*) AS total FROM equipment').fetchone()['total'],
                  'Pending': 0, 'Approved': 0, 'Rejected': 0}
@@ -350,7 +377,16 @@ def create_app(config=None):
     def reserve():
         values = request.form if request.method == 'POST' else {}
         if request.method == 'POST':
-            student = student_identity() or values.get('student_id', '').strip()
+            student = student_identity() or values.get('student_id', '').strip().upper()
+            if guest_https:
+                fields = {name: values.get(name, '') for name in ('student_id', 'equipment_id', 'reservation_date', 'start_time', 'end_time', 'quantity')}
+                result = guest_rpc('book', fields)
+                if 'error' in result:
+                    flash(result['error'], 'error')
+                    return render_template('index.html', page='reserve', items=inventory(), values=values), 400
+                remember_receipt(result['reservation'])
+                flash('Reservation confirmed successfully. Status: Approved.', 'success')
+                return redirect(url_for('manage'))
             equipment_id = values.get('equipment_id', '')
             day = values.get('reservation_date', '')
             start = values.get('start_time', '')
@@ -391,16 +427,22 @@ def create_app(config=None):
                 connection.rollback()
                 flash(error, 'error')
                 return render_template('index.html', page='reserve', items=inventory(), values=values), 400
-            connection.execute(
+            created = connection.execute(
                 '''INSERT INTO reservations
                    (student_id, equipment_id, reservation_date, start_time, end_time, quantity, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                   VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id''',
                 (student, equipment_id, day, start, end, quantity, 'Pending' if admin_review else 'Approved'),
-            )
+            ).fetchone()
             connection.commit()
+            if guest_mode:
+                remember_receipt(dict(id=created['id'], student_id=student, equipment_id=equipment_id, equipment_name=item['name'], reservation_date=day, start_time=start, end_time=end, quantity=quantity, status='Approved'))
             flash('Reservation submitted successfully. Status: Pending.' if admin_review else 'Reservation confirmed successfully. Status: Approved.', 'success')
             return redirect(url_for('manage'))
         return render_template('index.html', page='reserve', items=inventory(), values=values)
+
+    def remember_receipt(row):
+        # Only receipts returned from successful bookings in this browser; no ID-only lookup.
+        session['guest_receipts'] = (session.get('guest_receipts', []) + [dict(row)])[-5:]
 
     @app.get('/reservations')
     def manage():
@@ -427,12 +469,15 @@ def create_app(config=None):
                 raise ValueError
         except ValueError:
             return jsonify(error='Enter a valid date and time slot.'), 400
+        if guest_https:
+            result = guest_rpc('availability', slot)
+            return jsonify(result), (400 if 'error' in result else 200)
         connection = db()
         item = connection.execute('SELECT quantity FROM equipment WHERE id = ?', (slot['equipment_id'],)).fetchone()
         if item is None:
             return jsonify(error='Select valid laboratory equipment.'), 400
         available = max(0, item['quantity'] - peak_reserved(connection, slot))
-        student = student_identity() or (request.args.get('student_id', '').strip() if not auth_required else '')
+        student = student_identity() or (request.args.get('student_id', '').strip() if not auth_required and not guest_mode else '')
         return jsonify(available=available, stock=item['quantity'],
                        overlap=bool(student and overlapping_student(connection, student, slot)))
 

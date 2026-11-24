@@ -14,22 +14,22 @@
     <p class="nav-label">WORKSPACE</p>
     <nav aria-label="Main navigation">
       {% for key, endpoint, symbol, label in [('dashboard','dashboard','▦','Dashboard'),('equipment','equipment','▤','Equipment'),('reserve','reserve','＋','New Reservation'),('reservations','manage','☷','Reservations')] %}
-      {% if role and (key != 'reserve' or can_reserve) %}<a href="{{ url_for(endpoint) }}" class="{{ 'active' if page == key else '' }}" {% if page == key %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">{{ symbol }}</span>{{ 'My reservations' if key == 'reservations' and role == 'student' else label }}</a>{% endif %}
+      {% if role and (key != 'reserve' or can_reserve) %}<a href="{{ url_for(endpoint) }}" class="{{ 'active' if page == key else '' }}" {% if page == key %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">{{ symbol }}</span>{{ 'My reservations' if key == 'reservations' and role in ('student','guest') else label }}</a>{% endif %}
       {% endfor %}
       {% if role == 'admin' %}<a href="{{ url_for('student_accounts') }}">＋ Student accounts</a>{% endif %}
-      {% if role and role != 'legacy' %}<form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn secondary" type="submit">Sign out</button></form>{% endif %}
+      {% if role and role not in ('legacy','guest') %}<form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn secondary" type="submit">Sign out</button></form>{% endif %}
     </nav>
     <div class="side-footer">Academic project · CSE412<br><small>Department of Computer Science &amp; Engineering</small></div>
   </aside>
   <main>
-    <header class="topbar"><button class="menu" id="menu" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button><span>University Laboratory Equipment Reservation System</span><span class="portal">{{ 'ADMIN PORTAL' if role == 'admin' else ('STUDENT · ' ~ current_student if role == 'student' else 'EWU · STUDENT PROJECT') }}</span></header>
+    <header class="topbar"><button class="menu" id="menu" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button><span>University Laboratory Equipment Reservation System</span><span class="portal">{{ 'STUDENT RESERVATION' if guest_mode else ('ADMIN PORTAL' if role == 'admin' else ('STUDENT · ' ~ current_student if role == 'student' else 'EWU · STUDENT PROJECT')) }}</span></header>
     <div class="content">
       {% if online_demo %}<div class="demo-note" role="note">Academic demonstration only — not an official EWU service. Use fictional student IDs. {% if persistent_database %}Configured to use a shared PostgreSQL database; service availability is shown in system health.{% else %}Hosted database configuration is incomplete; reservations are unavailable until setup is finished.{% endif %}</div>{% endif %}
       {% for category, message in get_flashed_messages(with_categories=true) %}
       <div class="notice {{ category }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</div>
       {% endfor %}
       {% if page == 'database_error' %}
-      <section class="panel form-panel setup-panel"><div class="panel-head"><div><p class="eyebrow">SERVICE STATUS</p><h1>Database temporarily unavailable</h1><p>Your request could not be completed. No success has been confirmed.</p></div></div><div class="setup-body"><p>Diagnostic: <code>{{ database_reason }}</code></p><p>Check the <a href="{{ url_for('health') }}">database health endpoint</a> or contact the project administrator. Check your reservation or account status before resubmitting after recovery.</p><p><a class="btn secondary" href="{{ url_for('login') }}">Return to portal</a></p></div></section>
+      <section class="panel form-panel setup-panel"><div class="panel-head"><div><p class="eyebrow">SERVICE STATUS</p><h1>Database temporarily unavailable</h1><p>Your request could not be completed. No success has been confirmed.</p></div></div><div class="setup-body"><p>Diagnostic: <code>{{ database_reason }}</code></p><p>Check the <a href="{{ url_for('health') }}">database health endpoint</a> or contact the project administrator. Check your reservation or account status before resubmitting after recovery.</p><p><a class="btn secondary" href="{{ url_for('dashboard') }}">Return to portal</a></p></div></section>
       {% elif page == 'setup' %}
       <section class="panel form-panel setup-panel"><div class="panel-head"><div><p class="eyebrow">SYSTEM CONFIGURATION</p><h1>Database setup required</h1><p>The portal is temporarily unavailable to protect reservation records.</p></div></div><div class="setup-body"><p>Ask the project administrator to configure the following Vercel environment variables and redeploy:</p><ul>{% for key in configuration_missing %}<li><code>{{ key }}</code></li>{% endfor %}</ul><p>After redeployment, check <a href="{{ url_for('health') }}">system health</a>.</p></div></section>
       {% elif page == 'login' %}
@@ -66,7 +66,7 @@
         <article class="stat"><span class="stat-icon {{ tone }}">{{ icon }}</span><p>{{ label }}</p><strong>{{ stats[key] }}</strong></article>
         {% endfor %}
       </section>
-      <section class="panel"><div class="panel-head"><div><h2>Recent reservations</h2><p>Latest five submitted requests.</p></div><a href="{{ url_for('manage') }}">View all →</a></div>
+      <section class="panel"><div class="panel-head"><div><h2>Recent reservations</h2><p>{{ 'Latest five successful reservations from this browser.' if guest_mode else 'Latest five submitted requests.' }}</p></div><a href="{{ url_for('manage') }}">View all →</a></div>
       {% include '_reservations.html' %}</section>
       {% elif page == 'equipment' %}
       <div class="heading"><div><p class="eyebrow">INVENTORY</p><h1>Laboratory equipment</h1><p>Browse the equipment catalogue and total available stock.</p></div>{% if can_reserve %}<a class="btn primary" href="{{ url_for('reserve') }}">+ New reservation</a>{% endif %}</div>
@@ -75,9 +75,9 @@
       {% for item in items %}<tr><td class="muted">{{ item.id }}</td><td><strong>{{ item.name }}</strong></td><td>{{ item.category }}</td><td><span class="pill {{ 'approved' if item.quantity else 'rejected' }}">{{ item.quantity }} units</span></td></tr>{% endfor %}
       </tbody></table><p id="no-match" class="empty" hidden>No matching equipment.</p></div></section>
       {% elif page == 'reserve' %}
-      <div class="heading"><div><p class="eyebrow">BOOKING</p><h1>New reservation</h1><p>Complete the form to request laboratory equipment.</p></div></div>
+      <div class="heading"><div><p class="eyebrow">BOOKING</p><h1>New reservation</h1><p>Enter your Student ID and select equipment, date, time and quantity. No account is required in guest mode.</p></div></div>
       <section class="panel form-panel"><div class="panel-head"><div><h2>Reservation details</h2><p>All fields are required. {{ 'Requests are submitted as Pending.' if admin_review else 'Available equipment is booked automatically after validation.' }}</p></div></div>
-      <form method="post" class="form-grid" id="reservation-form">
+      <form method="post" class="form-grid" id="reservation-form" data-guest="{{ 'true' if guest_mode else 'false' }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>Student ID<input name="student_id" placeholder="e.g. 2024-1-60-001" maxlength="40" pattern="[A-Za-z0-9][A-Za-z0-9\-]*" required value="{{ current_student or values.get('student_id','') }}" {% if current_student %}readonly{% endif %}></label>
         <label>Equipment<select name="equipment_id" id="equipment" required><option value="">Select equipment</option>{% for item in items %}<option value="{{ item.id }}" data-stock="{{ item.quantity }}" {% if values.get('equipment_id') == item.id %}selected{% endif %}>{{ item.name }} ({{ item.id }}) — {{ item.quantity }} units</option>{% endfor %}</select></label>
@@ -88,8 +88,8 @@
         <div class="form-actions"><a class="btn secondary" href="{{ url_for('dashboard') }}">Cancel</a><button class="btn primary" type="submit">Submit reservation</button></div>
       </form></section>
       {% else %}
-      <div class="heading"><div><p class="eyebrow">MANAGEMENT</p><h1>{{ 'My reservations' if role == 'student' else 'Reservation requests' }}</h1><p>{{ 'Track your own reservation status.' if role == 'student' else 'Review, approve or reject student equipment reservations.' }}</p></div>{% if can_reserve %}<a class="btn primary" href="{{ url_for('reserve') }}">+ New reservation</a>{% endif %}</div>
-      <section class="panel"><div class="panel-head"><div><h2>{{ 'My requests' if role == 'student' else 'All requests' }}</h2><p>{{ rows|length }} submitted requests</p></div></div>{% include '_reservations.html' %}</section>
+      <div class="heading"><div><p class="eyebrow">MANAGEMENT</p><h1>{{ 'My reservations' if role in ('student','guest') else 'Reservation requests' }}</h1><p>{{ 'View the last five successful reservation receipts in this browser. Student IDs are not authenticated.' if guest_mode else ('Track your own reservation status.' if role == 'student' else 'Review, approve or reject student equipment reservations.') }}</p></div>{% if can_reserve %}<a class="btn primary" href="{{ url_for('reserve') }}">+ New reservation</a>{% endif %}</div>
+      <section class="panel"><div class="panel-head"><div><h2>{{ 'My requests' if role in ('student','guest') else 'All requests' }}</h2><p>{{ rows|length }} submitted requests</p></div></div>{% include '_reservations.html' %}</section>
       {% endif %}
       <footer>East West University · CSE412 Software Engineering · Academic demonstration</footer>
     </div>
