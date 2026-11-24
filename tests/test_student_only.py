@@ -39,6 +39,13 @@ class GuestBookingTests(unittest.TestCase):
         self.assertNotIn(b'TEST-A', self.b.get('/reservations').data)
         self.assertEqual(self.a.get('/admin/students').status_code, 403)
         self.assertEqual(self.post(self.a, '/reservations/1/reject').status_code, 403)
+        self.assertIn(b'Cancel reservation', self.a.get('/reservations').data)
+        self.assertEqual(self.post(self.b, '/reservations/1/cancel').status_code, 403)
+        self.assertEqual(self.post(self.a, '/reservations/1/cancel').status_code, 302)
+        self.assertNotIn(b'TEST-A', self.a.get('/reservations').data)
+        self.assertEqual(self.post(self.b, '/reserve', student_id='TEST-B', **data).status_code, 302)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT student_id,status,quantity FROM reservations').fetchall(), [('TEST-B','Approved',6)])
 
 
 if __name__ == '__main__':

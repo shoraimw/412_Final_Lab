@@ -95,7 +95,7 @@
         <div class="conflict-actions"><button type="button" id="use-available" class="btn secondary" hidden>Use available quantity</button><button type="button" id="change-slot" class="btn primary">Change time / equipment</button></div>
       </dialog>
       {% else %}
-      <div class="heading"><div><p class="eyebrow">MANAGEMENT</p><h1>{{ 'My reservations' if role in ('student','guest') else 'Reservation requests' }}</h1><p>{{ 'View the last five successful reservation receipts in this browser. Student IDs are not authenticated.' if guest_mode else ('Track your own reservation status.' if role == 'student' else 'Review, approve or reject student equipment reservations.') }}</p></div>{% if can_reserve %}<a class="btn primary" href="{{ url_for('reserve') }}">+ New reservation</a>{% endif %}</div>
+      <div class="heading"><div><p class="eyebrow">MANAGEMENT</p><h1>{{ 'My reservations' if role in ('student','guest') else 'Reservation requests' }}</h1><p>{{ 'View or cancel recent reservations made in this browser. Earlier bookings without a cancellation receipt cannot be cancelled here.' if guest_mode else ('Track your own reservation status.' if role == 'student' else 'Review, approve or reject student equipment reservations.') }}</p></div>{% if can_reserve %}<a class="btn primary" href="{{ url_for('reserve') }}">+ New reservation</a>{% endif %}</div>
       <section class="panel"><div class="panel-head"><div><h2>{{ 'My requests' if role in ('student','guest') else 'All requests' }}</h2><p>{{ rows|length }} submitted requests</p></div></div>{% include '_reservations.html' %}</section>
       {% endif %}
       <footer>East West University · CSE412 Software Engineering · Academic demonstration</footer>

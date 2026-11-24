@@ -280,7 +280,7 @@ def create_app(config=None):
 
     def reservations():
         if guest_mode:
-            return list(reversed(session.get('guest_receipts', [])))
+            return [dict(row, can_cancel=bool(row.get('cancellation_token')) if guest_https else True) for row in reversed(session.get('guest_receipts', []))]
         query = '''SELECT r.*, e.name AS equipment_name FROM reservations r
                    JOIN equipment e ON e.id = r.equipment_id'''
         student = student_identity()
@@ -447,6 +447,36 @@ def create_app(config=None):
     @app.get('/reservations')
     def manage():
         return render_template('index.html', page='reservations', rows=reservations())
+
+    @app.post('/reservations/<int:reservation_id>/cancel')
+    def cancel_reservation(reservation_id):
+        if not guest_mode:
+            abort(403)
+        receipts = session.get('guest_receipts', [])
+        receipt = next((row for row in receipts if row.get('id') == reservation_id), None)
+        if receipt is None:
+            abort(403)
+        if guest_https:
+            token = receipt.get('cancellation_token')
+            if not token:
+                flash('This earlier reservation has no cancellation receipt. Contact the project owner for assistance.', 'error')
+                return redirect(url_for('manage'))
+            result = guest_rpc('cancel', {'reservation_id': reservation_id, 'cancellation_token': token})
+            if result.get('cancelled') is not True:
+                flash(result.get('error', 'Reservation could not be cancelled.'), 'error')
+                return redirect(url_for('manage'))
+        else:
+            connection = db()
+            connection.execute('BEGIN IMMEDIATE')
+            cursor = connection.execute('DELETE FROM reservations WHERE id = ? AND student_id = ?', (reservation_id, receipt['student_id']))
+            if not cursor.rowcount:
+                connection.rollback()
+                flash('Reservation could not be cancelled or has already been removed.', 'error')
+                return redirect(url_for('manage'))
+            connection.commit()
+        session['guest_receipts'] = [row for row in receipts if row.get('id') != reservation_id]
+        flash('Reservation cancelled successfully. Equipment is available for booking again.', 'success')
+        return redirect(url_for('manage'))
 
     def overlapping_student(connection, student, row):
         return connection.execute(

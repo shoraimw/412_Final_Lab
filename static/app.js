@@ -114,3 +114,10 @@ if (equipment) {
   for (const field of [equipment, day, start, end, student, quantity]) field.addEventListener('input', refresh);
   refresh();
 }
+
+// Cancellation requires an explicit confirmation before posting.
+for (const cancelForm of document.querySelectorAll('.cancel-reservation-form')) {
+  cancelForm.addEventListener('submit', event => {
+    if (!window.confirm('Cancel this reservation? The equipment will become available to other students.')) event.preventDefault();
+  });
+}
