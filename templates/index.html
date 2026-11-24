@@ -28,7 +28,9 @@
       {% for category, message in get_flashed_messages(with_categories=true) %}
       <div class="notice {{ category }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</div>
       {% endfor %}
-      {% if page == 'setup' %}
+      {% if page == 'database_error' %}
+      <section class="panel form-panel setup-panel"><div class="panel-head"><div><p class="eyebrow">SERVICE STATUS</p><h1>Database temporarily unavailable</h1><p>Your request could not be completed. No success has been confirmed.</p></div></div><div class="setup-body"><p>Diagnostic: <code>{{ database_reason }}</code></p><p>Check the <a href="{{ url_for('health') }}">database health endpoint</a> or contact the project administrator. Check your reservation or account status before resubmitting after recovery.</p><p><a class="btn secondary" href="{{ url_for('login') }}">Return to portal</a></p></div></section>
+      {% elif page == 'setup' %}
       <section class="panel form-panel setup-panel"><div class="panel-head"><div><p class="eyebrow">SYSTEM CONFIGURATION</p><h1>Database setup required</h1><p>The portal is temporarily unavailable to protect reservation records.</p></div></div><div class="setup-body"><p>Ask the project administrator to configure the following Vercel environment variables and redeploy:</p><ul>{% for key in configuration_missing %}<li><code>{{ key }}</code></li>{% endfor %}</ul><p>After redeployment, check <a href="{{ url_for('health') }}">system health</a>.</p></div></section>
       {% elif page == 'login' %}
       <div class="heading"><div><p class="eyebrow">SECURE ACCESS</p><img class="login-logo" src="{{ url_for('static', filename='ewu-logo.png') }}" alt="East West University logo"><h1>Sign in to the laboratory portal</h1><p>Students can register a new account or sign in after administrator verification.</p></div></div>

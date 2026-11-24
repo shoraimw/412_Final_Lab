@@ -6,7 +6,7 @@ import sqlite3
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
-from postgres_adapter import PostgresConnection
+from postgres_adapter import PostgresConnection, DatabaseUnavailable
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
@@ -73,6 +73,19 @@ def create_app(config=None):
                 g.db.row_factory = sqlite3.Row
                 g.db.execute('PRAGMA foreign_keys = ON')
         return g.db
+
+    @app.errorhandler(DatabaseUnavailable)
+    def handle_database_unavailable(error):
+        app.logger.warning('Database request failed: %s', error.reason)
+        if request.path.startswith('/api/'):
+            return jsonify(status='unavailable', reason=error.reason), 503
+        return render_template('index.html', page='database_error', database_reason=error.reason), 503
+
+    @app.after_request
+    def protect_account_responses(response):
+        if request.endpoint != 'static':
+            response.headers['Cache-Control'] = 'no-store'
+        return response
 
     @app.teardown_appcontext
     def close_db(error=None):
@@ -276,7 +289,9 @@ def create_app(config=None):
             # Never return raw exception messages: drivers may include credential-bearing DSNs.
             state = getattr(exc, 'sqlstate', None)
             message = str(exc).lower()
-            if isinstance(exc, ImportError):
+            if isinstance(exc, DatabaseUnavailable):
+                reason = exc.reason
+            elif isinstance(exc, ImportError):
                 reason = 'database_driver_missing'
             elif state in ('28P01', '28000') or 'password authentication failed' in message:
                 reason = 'database_authentication_failed'
