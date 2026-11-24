@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page|capitalize }} | East West University Laboratory</title>
-  <link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/1/16/East-west-university-LogoSVG.svg">
+  <link rel="icon" href="{{ url_for('static', filename='ewu-logo.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script defer src="{{ url_for('static', filename='app.js') }}"></script>
 </head>
 <body>
   <aside class="sidebar" id="sidebar">
-    <a class="brand" href="{{ url_for('dashboard') }}"><img class="ewu-logo" src="https://upload.wikimedia.org/wikipedia/commons/1/16/East-west-university-LogoSVG.svg" alt="East West University logo" width="76" height="50"><span>East West University<small>Laboratory Services</small></span></a>
+    <a class="brand" href="{{ url_for('dashboard') }}"><img class="ewu-logo" src="{{ url_for('static', filename='ewu-logo.png') }}" alt="East West University logo" width="76" height="50"><span>East West University<small>Laboratory Services</small></span></a>
     <p class="nav-label">WORKSPACE</p>
     <nav aria-label="Main navigation">
       {% for key, endpoint, symbol, label in [('dashboard','dashboard','▦','Dashboard'),('equipment','equipment','▤','Equipment'),('reserve','reserve','＋','New Reservation'),('reservations','manage','☷','Reservations')] %}
@@ -24,16 +24,18 @@
   <main>
     <header class="topbar"><button class="menu" id="menu" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button><span>University Laboratory Equipment Reservation System</span><span class="portal">{{ 'ADMIN PORTAL' if role == 'admin' else ('STUDENT · ' ~ current_student if role == 'student' else 'EWU · STUDENT PROJECT') }}</span></header>
     <div class="content">
-      {% if online_demo %}<div class="demo-note" role="note">Academic demonstration only — not an official EWU service. Use fictional student IDs. {% if persistent_database %}Reservations are stored in the shared PostgreSQL database.{% else %}Online reservations may reset or differ across server instances until the database is connected.{% endif %}</div>{% endif %}
+      {% if online_demo %}<div class="demo-note" role="note">Academic demonstration only — not an official EWU service. Use fictional student IDs. {% if persistent_database %}Reservations are stored in the shared PostgreSQL database.{% else %}Hosted database configuration is incomplete; reservations are unavailable until setup is finished.{% endif %}</div>{% endif %}
       {% for category, message in get_flashed_messages(with_categories=true) %}
       <div class="notice {{ category }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</div>
       {% endfor %}
-      {% if page == 'login' %}
-      <div class="heading"><div><p class="eyebrow">SECURE ACCESS</p><h1>Sign in to the laboratory portal</h1><p>Students use accounts issued by the laboratory administrator.</p></div></div>
+      {% if page == 'setup' %}
+      <section class="panel form-panel setup-panel"><div class="panel-head"><div><p class="eyebrow">SYSTEM CONFIGURATION</p><h1>Database setup required</h1><p>The portal is temporarily unavailable to protect reservation records.</p></div></div><div class="setup-body"><p>Ask the project administrator to configure the following Vercel environment variables and redeploy:</p><ul>{% for key in configuration_missing %}<li><code>{{ key }}</code></li>{% endfor %}</ul><p>After redeployment, check <a href="{{ url_for('health') }}">system health</a>.</p></div></section>
+      {% elif page == 'login' %}
+      <div class="heading"><div><p class="eyebrow">SECURE ACCESS</p><img class="login-logo" src="{{ url_for('static', filename='ewu-logo.png') }}" alt="East West University logo"><h1>Sign in to the laboratory portal</h1><p>Students use accounts issued by the laboratory administrator.</p></div></div>
       <section class="panel form-panel"><form method="post" class="form-grid">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label>Account type<select name="role"><option value="student">Student</option><option value="admin">Administrator</option></select></label>
-      <label>Student ID (students only)<input name="student_id" autocomplete="username" maxlength="40"></label>
+      <label>Account type<select name="role"><option value="student" {% if selected_role != 'admin' %}selected{% endif %}>Student</option><option value="admin" {% if selected_role == 'admin' %}selected{% endif %}>Administrator</option></select></label>
+      <label>Student ID (students only)<input name="student_id" autocomplete="username" maxlength="40" value="{{ entered_id|default('') }}"></label>
       <label>Password<input name="password" type="password" autocomplete="current-password" maxlength="256" required></label>
       <div class="form-actions"><button class="btn primary" type="submit">Sign in</button></div>
       </form></section>

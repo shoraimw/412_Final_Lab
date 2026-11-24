@@ -51,13 +51,19 @@ def create_app(config=None):
         if 'DATABASE' in config and 'DATABASE_URL' not in config:
             app.config['DATABASE_URL'] = None
     remote = bool(app.config['DATABASE_URL'])
-    if remote and os.environ.get('VERCEL') and not os.environ.get('SECRET_KEY'):
-        raise RuntimeError('Set SECRET_KEY in the Vercel environment before using PostgreSQL.')
-    if not remote:
+    missing = []
+    if app.config['ONLINE_DEMO'] and not app.testing:
+        for key in ('DATABASE_URL', 'SECRET_KEY', 'ADMIN_PASSWORD'):
+            if not os.environ.get(key, '').strip():
+                missing.append(key)
+    # A hosted instance must never silently create an isolated reservation database.
+    if not remote and not missing:
         Path(app.config['DATABASE']).parent.mkdir(parents=True, exist_ok=True)
 
     def db():
         """One connection per request; SQLite locally or shared PostgreSQL."""
+        if missing:
+            raise RuntimeError('Hosted database configuration incomplete')
         if 'db' not in g:
             if remote:
                 g.db = PostgresConnection(app.config['DATABASE_URL'])
@@ -73,7 +79,7 @@ def create_app(config=None):
         if connection is not None:
             connection.close()
 
-    if not remote:
+    if not remote and not missing:
         with app.app_context():
             connection = db()
             connection.executescript((ROOT / 'schema.sql').read_text(encoding='utf-8'))
@@ -82,6 +88,11 @@ def create_app(config=None):
             )
             connection.commit()
 
+
+    @app.before_request
+    def require_configuration():
+        if missing and request.endpoint not in ('health', 'static', None):
+            return render_template('index.html', page='setup'), 503
 
     auth_required = not (app.testing and app.config.get('AUTH_REQUIRED') is False)
 
@@ -114,7 +125,7 @@ def create_app(config=None):
             selected = request.form.get('role')
             username = request.form.get('student_id', '').strip().upper()
             password = request.form.get('password', '')
-            if len(password) > 256:
+            if len(password) > 256 or len(username) > 40:
                 abort(400)
             authenticated = False
             if selected == 'admin':
@@ -130,8 +141,8 @@ def create_app(config=None):
                     session['student_id'] = username
                 session.permanent = True
                 return redirect(url_for('dashboard'))
-            flash('Invalid login details or account not configured.', 'error')
-            return render_template('index.html', page='login'), 401
+            flash('Invalid login details. Students must use an account issued by the administrator.', 'error')
+            return render_template('index.html', page='login', selected_role=selected, entered_id=username), 401
         return render_template('index.html', page='login')
 
     @app.post('/logout')
@@ -165,7 +176,7 @@ def create_app(config=None):
     def common():
         if 'csrf' not in session:
             session['csrf'] = secrets.token_hex(24)
-        return {'csrf_token': session['csrf'], 'today': local_today().isoformat(), 'online_demo': app.config['ONLINE_DEMO'], 'persistent_database': remote, 'role': role(), 'current_student': student_identity(), 'can_manage': role() in ('admin', 'legacy'), 'can_reserve': role() in ('student', 'legacy')}
+        return {'csrf_token': session['csrf'], 'today': local_today().isoformat(), 'online_demo': app.config['ONLINE_DEMO'], 'persistent_database': remote and not missing, 'configuration_missing': missing, 'role': role(), 'current_student': student_identity(), 'can_manage': role() in ('admin', 'legacy'), 'can_reserve': role() in ('student', 'legacy')}
 
     @app.before_request
     def verify_csrf():
@@ -187,10 +198,13 @@ def create_app(config=None):
 
     @app.get('/api/health')
     def health():
+        if missing:
+            return jsonify(status='configuration_required', missing=missing, persistent=False), 503
         try:
             connection = db()
             connection.execute('SELECT COUNT(*) AS total FROM equipment').fetchone()
             connection.execute('SELECT COUNT(*) AS total FROM reservations').fetchone()
+            connection.execute('SELECT COUNT(*) AS total FROM students').fetchone()
         except Exception:
             app.logger.warning('Database health check failed')
             return jsonify(status='unavailable'), 503
