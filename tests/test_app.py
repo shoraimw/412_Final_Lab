@@ -63,13 +63,45 @@ class ReservationTests(unittest.TestCase):
 
     def test_overbooking_and_adjacent_slots(self):
         self.submit(quantity='8')
+        self.submit(student_id='2024-1-60-002', quantity='1')
         self.status(1, 'approve')
-        self.submit(quantity='1')
-        self.assertIn(b'Not enough equipment', self.status(2, 'approve').data)
+        self.assertIn(b'Insufficient equipment available for approval', self.status(2, 'approve').data)
+        self.assertEqual(self.submit(student_id='2024-1-60-003', quantity='1').status_code, 400)
         self.submit(start_time='11:00', end_time='12:00', quantity='8')
         self.status(3, 'approve')
         self.assertEqual(self.query('SELECT status FROM reservations ORDER BY id'),
                          [('Approved',), ('Pending',), ('Approved',)])
+
+    def test_overlap_and_rejection(self):
+        self.submit()
+        for changes in ({}, {'start_time':'10:30','end_time':'11:30'}, {'start_time':'09:30','end_time':'10:30'}):
+            response = self.submit(**changes)
+            self.assertEqual(response.status_code, 400)
+            self.assertIn(b'An overlapping reservation already exists', response.data)
+        self.assertEqual(self.query('SELECT COUNT(*) FROM reservations'), [(1,)])
+        self.assertEqual(self.submit(equipment_id='EQ-002').status_code, 200)
+        self.status(1, 'reject')
+        self.assertEqual(self.submit().status_code, 200)
+
+    def test_peak_not_sum_and_live_availability(self):
+        self.submit(quantity='5')
+        self.submit(student_id='B', start_time='11:00', end_time='12:00', quantity='5')
+        self.status(1, 'approve')
+        self.status(2, 'approve')
+        slot = dict(equipment_id='EQ-001', reservation_date=self.day, start_time='10:00', end_time='12:00')
+        self.assertEqual(self.client.get('/api/availability', query_string=slot).json['available'], 3)
+        self.assertEqual(self.submit(student_id='C', end_time='12:00', quantity='4').status_code, 400)
+        self.assertEqual(self.submit(student_id='C', end_time='12:00', quantity='3').status_code, 200)
+        self.status(3, 'approve')
+        self.assertEqual(self.client.get('/api/availability', query_string=slot).json['available'], 0)
+        self.assertEqual(self.query("SELECT quantity FROM equipment WHERE id='EQ-001'"), [(8,)])
+        self.status(3, 'approve')
+        self.assertEqual(self.query("SELECT status FROM reservations WHERE id=3"), [('Approved',)])
+
+    def test_equal_time_negative_and_missing_fields(self):
+        for changes in ({'quantity':'-1'}, {'end_time':'10:00'}, {'start_time':''}, {'reservation_date':''}, {'quantity':''}):
+            self.assertEqual(self.submit(**changes).status_code, 400)
+        self.assertEqual(self.query('SELECT COUNT(*) FROM reservations'), [(0,)])
 
     def test_restart_persists_data(self):
         self.submit()
