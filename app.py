@@ -36,7 +36,7 @@ def create_app(config=None):
     app = Flask(__name__)
     app.config.from_mapping(
         DATABASE=os.environ.get('DATABASE_PATH') or (('/tmp/ewu-laboratory.sqlite3') if os.environ.get('VERCEL') else str(Path(app.instance_path) / 'laboratory.sqlite3')),
-        DATABASE_URL=os.environ.get('DATABASE_URL'),
+        DATABASE_URL=os.environ.get('DATABASE_URL', '').strip() or None,
         ADMIN_PASSWORD=os.environ.get('ADMIN_PASSWORD'),
         ADMIN_ID='SWNN',
         AUTH_REQUIRED=True,
@@ -246,16 +246,56 @@ def create_app(config=None):
     def health():
         if missing:
             return jsonify(status='configuration_required', missing=missing, persistent=False), 503
+        if remote:
+            from urllib.parse import urlsplit, unquote
+            try:
+                uri = urlsplit(app.config['DATABASE_URL'].strip())
+                if uri.scheme not in ('postgres', 'postgresql') or not uri.hostname or not uri.username or not uri.password:
+                    return jsonify(status='unavailable', reason='invalid_database_uri'), 503
+                if unquote(uri.password).lower() in ('[your-password]', 'your-password', '[password]', 'your_password'):
+                    return jsonify(status='unavailable', reason='database_password_placeholder'), 503
+                if app.config['ONLINE_DEMO'] and uri.hostname.endswith('.supabase.co') and uri.hostname.startswith('db.'):
+                    # Direct Supabase hosts may be IPv6-only. Report this only if connection fails.
+                    direct_host = True
+                else:
+                    direct_host = False
+            except ValueError:
+                return jsonify(status='unavailable', reason='invalid_database_uri'), 503
+        else:
+            direct_host = False
+        phase = 'connect'
         try:
             connection = db()
+            phase = 'schema'
             connection.execute('SELECT COUNT(*) AS total FROM equipment').fetchone()
             connection.execute('SELECT COUNT(*) AS total FROM reservations').fetchone()
             connection.execute('SELECT COUNT(*) AS total FROM students').fetchone()
             connection.execute('SELECT COUNT(*) AS total FROM admins').fetchone()
             connection.execute('SELECT approved FROM students LIMIT 1').fetchone()
-        except Exception:
-            app.logger.warning('Database health check failed')
-            return jsonify(status='unavailable'), 503
+        except Exception as exc:
+            # Never return raw exception messages: drivers may include credential-bearing DSNs.
+            state = getattr(exc, 'sqlstate', None)
+            message = str(exc).lower()
+            if isinstance(exc, ImportError):
+                reason = 'database_driver_missing'
+            elif state in ('28P01', '28000') or 'password authentication failed' in message:
+                reason = 'database_authentication_failed'
+            elif 'tenant or user not found' in message:
+                reason = 'pooler_user_or_host_invalid'
+            elif state in ('42P01', '42703', '3F000'):
+                reason = 'database_schema_missing'
+            elif state == '42501' or 'permission denied' in message:
+                reason = 'database_permission_denied'
+            elif phase == 'connect' and direct_host:
+                reason = 'direct_connection_failed_use_pooler'
+            elif phase == 'connect' and ('timeout' in message or 'timed out' in message):
+                reason = 'database_connection_timeout'
+            elif phase == 'connect':
+                reason = 'database_connection_failed'
+            else:
+                reason = 'database_query_failed'
+            app.logger.warning('Database health check failed: %s (%s)', reason, phase)
+            return jsonify(status='unavailable', reason=reason), 503
         mode = 'postgresql' if remote else ('temporary-sqlite' if app.config['ONLINE_DEMO'] else 'sqlite')
         return jsonify(status='ok', database=mode, persistent=remote or not app.config['ONLINE_DEMO'])
 
