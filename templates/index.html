@@ -77,7 +77,7 @@
       {% elif page == 'reserve' %}
       <div class="heading"><div><p class="eyebrow">BOOKING</p><h1>New reservation</h1><p>Enter your Student ID and select equipment, date, time and quantity. No account is required in guest mode.</p></div></div>
       <section class="panel form-panel"><div class="panel-head"><div><h2>Reservation details</h2><p>All fields are required. {{ 'Requests are submitted as Pending.' if admin_review else 'Available equipment is booked automatically after validation.' }}</p></div></div>
-      <form method="post" class="form-grid" id="reservation-form" data-guest="{{ 'true' if guest_mode else 'false' }}">
+      <form method="post" class="form-grid" id="reservation-form" data-guest="{{ 'true' if guest_mode else 'false' }}" data-conflict="{{ booking_conflict|default('') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>Student ID<input name="student_id" placeholder="e.g. 2024-1-60-001" maxlength="40" pattern="[A-Za-z0-9][A-Za-z0-9\-]*" required value="{{ current_student or values.get('student_id','') }}" {% if current_student %}readonly{% endif %}></label>
         <label>Equipment<select name="equipment_id" id="equipment" required><option value="">Select equipment</option>{% for item in items %}<option value="{{ item.id }}" data-stock="{{ item.quantity }}" {% if values.get('equipment_id') == item.id %}selected{% endif %}>{{ item.name }} ({{ item.id }}) — {{ item.quantity }} units</option>{% endfor %}</select></label>
@@ -87,6 +87,13 @@
         <label>End time<input type="time" name="end_time" id="end-time" required value="{{ values.get('end_time','') }}"></label>
         <div class="form-actions"><a class="btn secondary" href="{{ url_for('dashboard') }}">Cancel</a><button class="btn primary" type="submit">Submit reservation</button></div>
       </form></section>
+      <dialog id="booking-conflict" class="booking-conflict" aria-labelledby="conflict-title" aria-describedby="conflict-message">
+        <div class="conflict-symbol" aria-hidden="true">!</div>
+        <h2 id="conflict-title">Equipment already reserved</h2>
+        <p id="conflict-message"></p>
+        <p id="conflict-slot" class="conflict-slot"></p>
+        <div class="conflict-actions"><button type="button" id="use-available" class="btn secondary" hidden>Use available quantity</button><button type="button" id="change-slot" class="btn primary">Change time / equipment</button></div>
+      </dialog>
       {% else %}
       <div class="heading"><div><p class="eyebrow">MANAGEMENT</p><h1>{{ 'My reservations' if role in ('student','guest') else 'Reservation requests' }}</h1><p>{{ 'View the last five successful reservation receipts in this browser. Student IDs are not authenticated.' if guest_mode else ('Track your own reservation status.' if role == 'student' else 'Review, approve or reject student equipment reservations.') }}</p></div>{% if can_reserve %}<a class="btn primary" href="{{ url_for('reserve') }}">+ New reservation</a>{% endif %}</div>
       <section class="panel"><div class="panel-head"><div><h2>{{ 'My requests' if role in ('student','guest') else 'All requests' }}</h2><p>{{ rows|length }} submitted requests</p></div></div>{% include '_reservations.html' %}</section>

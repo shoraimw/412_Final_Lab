@@ -28,7 +28,10 @@ class GuestBookingTests(unittest.TestCase):
         self.b.get('/reserve')
         data = dict(equipment_id='EQ-001', reservation_date=(local_today()+timedelta(days=1)).isoformat(), start_time='10:00', end_time='11:00', quantity='6')
         self.assertEqual(self.post(self.a, '/reserve', student_id='TEST-A', **data).status_code, 302)
-        self.assertEqual(self.post(self.b, '/reserve', student_id='TEST-B', **data).status_code, 400)
+        blocked = self.post(self.b, '/reserve', student_id='TEST-B', **data)
+        self.assertEqual(blocked.status_code, 400)
+        self.assertIn(b'data-conflict="Requested quantity exceeds available equipment."', blocked.data)
+        self.assertIn(b'id="booking-conflict"', blocked.data)
         self.assertEqual(self.post(self.a, '/reserve', student_id='TEST-A', **data).status_code, 400)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute('SELECT student_id,status,quantity FROM reservations').fetchall(), [('TEST-A','Approved',6)])

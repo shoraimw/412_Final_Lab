@@ -383,7 +383,7 @@ def create_app(config=None):
                 result = guest_rpc('book', fields)
                 if 'error' in result:
                     flash(result['error'], 'error')
-                    return render_template('index.html', page='reserve', items=inventory(), values=values), 400
+                    return render_template('index.html', page='reserve', items=inventory(), values=values, booking_conflict=result['error'] if result['error'] in ('Requested quantity exceeds available equipment.', 'An overlapping reservation already exists.') else ''), 400
                 remember_receipt(result['reservation'])
                 flash('Reservation confirmed successfully. Status: Approved.', 'success')
                 return redirect(url_for('manage'))
@@ -426,7 +426,7 @@ def create_app(config=None):
             if error:
                 connection.rollback()
                 flash(error, 'error')
-                return render_template('index.html', page='reserve', items=inventory(), values=values), 400
+                return render_template('index.html', page='reserve', items=inventory(), values=values, booking_conflict=error if error in ('Requested quantity exceeds available equipment.', 'An overlapping reservation already exists.') else ''), 400
             created = connection.execute(
                 '''INSERT INTO reservations
                    (student_id, equipment_id, reservation_date, start_time, end_time, quantity, status)
